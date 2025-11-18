@@ -67,9 +67,13 @@ PRACTICE_TEXTS = {
 }
 
 MODEL_OPTIONS = {
-    "Wav2Vec2 Large (Orthographic - Recommended)": "facebook/wav2vec2-large-960h",
+    "Wav2Vec2 Base (Fast, Cloud-Friendly)": "facebook/wav2vec2-base-960h",
+    "Wav2Vec2 Large (Better Accuracy, Needs More RAM)": "facebook/wav2vec2-large-960h",
     "Wav2Vec2 XLSR (Phonetic)": "mrrubino/wav2vec2-large-xlsr-53-l2-arctic-phoneme",
 }
+
+# Default model - use Base for cloud deployments (smaller, faster)
+DEFAULT_MODEL = "facebook/wav2vec2-base-960h"
 
 # ============================================================================
 # AUDIO PROCESSING FUNCTIONS
