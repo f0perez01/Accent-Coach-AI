@@ -133,9 +133,10 @@ The application will open in your default browser at `http://localhost:8501`
    - Enable/disable LLM feedback
 
 3. **Record Your Pronunciation**
-   - Click the microphone icon to start recording
+   - Click "Record your pronunciation" button
+   - Allow microphone access when prompted
    - Speak clearly and naturally
-   - Click again to stop (max 30 seconds)
+   - Click "Stop recording" when done
 
 4. **Analyze**
    - Click "Analyze Pronunciation" button

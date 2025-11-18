@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Accent Coach AI - Streamlit Interface
-Interactive pronunciation practice application for American English
+Accent Coach AI - Alternative Implementation
+Uses file upload instead of real-time recording to avoid browser compatibility issues
 """
 
 import os
@@ -72,18 +72,14 @@ MODEL_OPTIONS = {
 }
 
 # ============================================================================
-# AUDIO PROCESSING FUNCTIONS (from run_mdd.py)
+# AUDIO PROCESSING FUNCTIONS
 # ============================================================================
 
-def load_audio_from_bytes(audio_bytes: bytes, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
-    """Load audio from bytes and convert to numpy array"""
-    # Try multiple methods to load audio
-
-    # Method 1: Try with soundfile (most reliable for WAV)
+def load_audio_from_file(uploaded_file, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
+    """Load audio from uploaded file"""
     try:
         import soundfile as sf
-        audio_file = io.BytesIO(audio_bytes)
-        waveform, sr = sf.read(audio_file, dtype='float32')
+        waveform, sr = sf.read(uploaded_file, dtype='float32')
 
         # Convert to mono if stereo
         if waveform.ndim > 1 and waveform.shape[1] > 1:
@@ -94,46 +90,13 @@ def load_audio_from_bytes(audio_bytes: bytes, target_sr: int = 16000) -> Tuple[n
             import librosa
             waveform = librosa.resample(waveform, orig_sr=sr, target_sr=target_sr)
 
-        # Ensure it's a 1D array
         if waveform.ndim > 1:
             waveform = waveform.flatten()
 
         return waveform.astype(np.float32), target_sr
-    except Exception as e1:
-        # Method 2: Try with librosa
-        try:
-            import librosa
-            audio_file = io.BytesIO(audio_bytes)
-            waveform, sr = librosa.load(audio_file, sr=target_sr, mono=True)
-            return waveform.astype(np.float32), target_sr
-        except Exception as e2:
-            # Method 3: Try with torchaudio
-            try:
-                audio_file = io.BytesIO(audio_bytes)
-                waveform, sr = torchaudio.load(audio_file)
-
-                # Convert to mono if stereo
-                if waveform.ndim > 1 and waveform.shape[0] > 1:
-                    waveform = waveform.mean(dim=0)
-
-                # Resample if necessary
-                if sr != target_sr:
-                    waveform = torchaudio.transforms.Resample(sr, target_sr)(waveform)
-
-                # Convert to numpy
-                waveform_np = waveform.numpy() if isinstance(waveform, torch.Tensor) else waveform
-
-                # Ensure 1D
-                if waveform_np.ndim > 1:
-                    waveform_np = waveform_np.flatten()
-
-                return waveform_np.astype(np.float32), target_sr
-            except Exception as e3:
-                st.error(f"Failed to load audio with all methods:")
-                st.error(f"- soundfile: {e1}")
-                st.error(f"- librosa: {e2}")
-                st.error(f"- torchaudio: {e3}")
-                return None, None
+    except Exception as e:
+        st.error(f"Failed to load audio: {e}")
+        return None, None
 
 
 def tokenize_phonemes(s: str) -> List[str]:
@@ -326,7 +289,6 @@ def calculate_metrics(per_word_comparison: List[Dict]) -> Dict:
     total_words = len(per_word_comparison)
     correct_words = sum(1 for item in per_word_comparison if item['match'])
 
-    # Calculate phoneme-level metrics
     total_phonemes = 0
     correct_phonemes = 0
     substitutions = 0
@@ -337,13 +299,11 @@ def calculate_metrics(per_word_comparison: List[Dict]) -> Dict:
         ref = item['ref_phonemes']
         rec = item['rec_phonemes']
 
-        # Simple character-level comparison
         ref_chars = list(ref) if ref else []
         rec_chars = list(rec) if rec else []
 
         total_phonemes += len(ref_chars)
 
-        # Align at character level for detailed metrics
         if ref == rec:
             correct_phonemes += len(ref_chars)
         else:
@@ -376,12 +336,12 @@ def calculate_metrics(per_word_comparison: List[Dict]) -> Dict:
     }
 
 
-def process_audio_pipeline(audio_bytes: bytes, reference_text: str,
+def process_audio_pipeline(uploaded_file, reference_text: str,
                            processor, model, device, use_g2p: bool,
                            use_llm: bool, groq_api_key: str, lang: str = "en-us") -> Dict:
     """Complete analysis pipeline"""
     # Load audio
-    audio, sr = load_audio_from_bytes(audio_bytes)
+    audio, sr = load_audio_from_file(uploaded_file)
     if audio is None:
         return None
 
@@ -421,6 +381,10 @@ def process_audio_pipeline(audio_bytes: bytes, reference_text: str,
     if use_llm and groq_api_key:
         with st.spinner("Getting AI coach feedback..."):
             llm_feedback = get_llm_feedback(reference_text, per_word_comparison, groq_api_key)
+
+    # Save audio data
+    uploaded_file.seek(0)
+    audio_bytes = uploaded_file.read()
 
     return {
         'timestamp': datetime.now(),
@@ -558,13 +522,9 @@ def main():
     with st.sidebar:
         st.header("🎯 Practice Text Selection")
 
-        # Category selection
         category = st.selectbox("Category", list(PRACTICE_TEXTS.keys()))
-
-        # Text selection
         text_option = st.selectbox("Select a phrase", PRACTICE_TEXTS[category])
 
-        # Custom text option
         use_custom = st.checkbox("Use custom text")
         if use_custom:
             custom_text = st.text_area("Enter your text:", value=text_option, height=100)
@@ -574,7 +534,6 @@ def main():
 
         st.divider()
 
-        # Advanced settings
         with st.expander("⚙️ Advanced Settings"):
             model_choice = st.selectbox("ASR Model", list(MODEL_OPTIONS.keys()))
             st.session_state.config['model_name'] = MODEL_OPTIONS[model_choice]
@@ -585,10 +544,8 @@ def main():
 
         st.divider()
 
-        # System info
         st.header("📊 System Info")
 
-        # Get API keys from secrets or environment
         try:
             groq_api_key = st.secrets.get("GROQ_API_KEY", os.environ.get("GROQ_API_KEY"))
             hf_token = st.secrets.get("HF_API_TOKEN", os.environ.get("HF_API_TOKEN"))
@@ -612,71 +569,42 @@ def main():
 
     st.divider()
 
-    # Recording section
-    st.header("🎙️ Record Your Pronunciation")
+    # Upload section
+    st.header("🎙️ Upload Your Audio Recording")
 
-    st.markdown("**Click below to record your pronunciation**")
-    st.caption("Speak clearly and naturally. The recording will stop automatically when you're done.")
+    st.info("""
+    **How to record audio on your device:**
 
-    audio_bytes = st.audio_input("Record your pronunciation")
+    - **Windows**: Use Voice Recorder app (built-in) or Audacity
+    - **Mac**: Use QuickTime Player or Voice Memos
+    - **Mobile**: Use your phone's voice recorder app
+    - **Online**: Use https://online-voice-recorder.com/
 
-    if audio_bytes:
-        st.success("✓ Recording captured!")
+    Upload the audio file (.wav, .mp3, .m4a, .flac, .ogg) below.
+    """)
 
-        # Get audio data
-        audio_data = audio_bytes.getvalue()
+    uploaded_file = st.file_uploader(
+        "Choose an audio file",
+        type=['wav', 'mp3', 'm4a', 'flac', 'ogg', 'webm'],
+        help="Upload your pronunciation recording"
+    )
 
-        # Show audio info
-        audio_size = len(audio_data) / 1024  # KB
-        st.caption(f"Audio size: {audio_size:.1f} KB")
+    if uploaded_file:
+        st.success(f"✓ File uploaded: {uploaded_file.name}")
+        st.audio(uploaded_file, format=f"audio/{uploaded_file.name.split('.')[-1]}")
 
-        # Diagnostic: Try to load and analyze the audio
-        with st.expander("🔍 Audio Diagnostics (click to expand)"):
-            try:
-                import soundfile as sf
-                import io
+        file_size = uploaded_file.size / 1024  # KB
+        st.caption(f"File size: {file_size:.1f} KB")
 
-                # Load audio
-                audio_file = io.BytesIO(audio_data)
-                waveform, sr = sf.read(audio_file, dtype='float32')
-
-                # Show stats
-                st.write(f"Sample rate: {sr} Hz")
-                st.write(f"Duration: {len(waveform) / sr:.2f} seconds")
-                st.write(f"Samples: {len(waveform)}")
-                st.write(f"Channels: {waveform.ndim if waveform.ndim == 1 else waveform.shape[1]}")
-                st.write(f"Min amplitude: {waveform.min():.4f}")
-                st.write(f"Max amplitude: {waveform.max():.4f}")
-                st.write(f"Mean amplitude: {waveform.mean():.4f}")
-
-                # Check if audio is silent
-                if abs(waveform.max()) < 0.001 and abs(waveform.min()) < 0.001:
-                    st.error("⚠️ WARNING: Audio appears to be silent or nearly silent!")
-                    st.warning("This might indicate a microphone permission issue or hardware problem.")
-                else:
-                    st.success("✓ Audio contains sound data")
-
-            except Exception as e:
-                st.error(f"Could not analyze audio: {e}")
-
-        # Play the audio
-        st.audio(audio_bytes, format="audio/wav")
-
-    # Analysis button
-    if audio_bytes:
+        # Analysis button
         if st.button("🚀 Analyze Pronunciation", type="primary", use_container_width=True):
-            # Load model
             processor, model, device = load_asr_model(
                 st.session_state.config['model_name'],
                 hf_token
             )
 
-            # Convert audio_bytes to bytes if it's a file-like object
-            audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, 'getvalue') else audio_bytes
-
-            # Process
             result = process_audio_pipeline(
-                audio_data,
+                uploaded_file,
                 reference_text,
                 processor,
                 model,
@@ -700,7 +628,6 @@ def main():
 
         result = st.session_state.current_result
 
-        # Tabs
         tab1, tab2, tab3, tab4 = st.tabs([
             "📋 Word Comparison",
             "🎓 Coach Feedback",
@@ -717,7 +644,6 @@ def main():
 
             display_comparison_table(result['per_word_comparison'], show_errors_only)
 
-            # Quick stats
             metrics = result['metrics']
             col1, col2, col3 = st.columns(3)
             col1.metric("Word Accuracy", f"{metrics['word_accuracy']:.1f}%")
@@ -730,7 +656,6 @@ def main():
             if result['llm_feedback']:
                 st.markdown(result['llm_feedback'])
 
-                # Copy button
                 if st.button("📋 Copy Feedback"):
                     st.code(result['llm_feedback'])
             else:
@@ -739,7 +664,6 @@ def main():
         with tab3:
             st.subheader("Technical Analysis")
 
-            # Metrics
             st.markdown("#### Metrics")
             metrics = result['metrics']
 
@@ -749,17 +673,14 @@ def main():
             col3.metric("Phoneme Error Rate", f"{metrics['phoneme_error_rate']:.1f}%")
             col4.metric("Total Errors", metrics['substitutions'] + metrics['insertions'] + metrics['deletions'])
 
-            # Error distribution
             st.markdown("#### Error Distribution")
             fig = plot_error_distribution(metrics)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Waveform
             st.markdown("#### Audio Waveform")
             fig_wave = plot_waveform(result['audio_array'], result['sample_rate'])
             st.plotly_chart(fig_wave, use_container_width=True)
 
-            # Technical details
             with st.expander("🔍 View Technical Details"):
                 st.markdown("**Raw Decoded Text:**")
                 st.code(result['raw_decoded'])
@@ -779,9 +700,8 @@ def main():
                         col2.metric("Phoneme Accuracy", f"{hist_result['metrics']['phoneme_accuracy']:.1f}%")
                         col3.metric("Errors", hist_result['metrics']['substitutions'] + hist_result['metrics']['insertions'] + hist_result['metrics']['deletions'])
 
-                        st.audio(hist_result['audio_data'], format="audio/wav")
+                        st.audio(hist_result['audio_data'])
 
-                # Export option
                 if st.button("💾 Export History as JSON"):
                     export_data = []
                     for hist_result in st.session_state.analysis_history:
@@ -800,7 +720,7 @@ def main():
                         mime="application/json"
                     )
             else:
-                st.info("No analysis history yet. Record and analyze your first pronunciation!")
+                st.info("No analysis history yet. Upload and analyze your first recording!")
 
 
 if __name__ == "__main__":
