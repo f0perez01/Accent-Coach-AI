@@ -214,16 +214,32 @@ def load_asr_model(model_name: str, hf_token: Optional[str] = None):
     if hf_token:
         kwargs["use_auth_token"] = hf_token
 
+    # Update kwargs for newer transformers versions
+    if hf_token:
+        # Try both parameter names for compatibility
+        kwargs["token"] = hf_token
+        kwargs["use_auth_token"] = hf_token
+
     # Try loading the requested model
     try:
         with st.spinner(f"📥 Downloading model: {model_name}...\nThis may take 30-60 seconds on first run."):
             # Load processor
             st.toast("Loading processor...")
-            processor = AutoProcessor.from_pretrained(model_name, **kwargs)
+            processor = AutoProcessor.from_pretrained(
+                model_name,
+                **kwargs,
+                trust_remote_code=False,
+                local_files_only=False
+            )
 
             # Load model
             st.toast("Loading model weights...")
-            model = AutoModelForCTC.from_pretrained(model_name, **kwargs).to(device)
+            model = AutoModelForCTC.from_pretrained(
+                model_name,
+                **kwargs,
+                trust_remote_code=False,
+                local_files_only=False
+            ).to(device)
 
             st.toast(f"✅ Model ready: {model_name}", icon="✅")
 
@@ -271,10 +287,22 @@ def load_asr_model(model_name: str, hf_token: Optional[str] = None):
                 st.error("- Check your internet connection")
                 st.error("- Try refreshing the page")
                 st.error("- Hugging Face Hub might be down")
+            elif "not a valid model identifier" in error_msg.lower() or "not a local folder" in error_msg.lower():
+                st.error("🔌 **Hugging Face Connection Issue**")
+                st.error("Possible causes:")
+                st.error("1. **Network/Firewall blocking HuggingFace**")
+                st.error("   - Streamlit Cloud may have connectivity issues")
+                st.error("   - Try again in a few minutes")
+                st.error("2. **Outdated transformers library**")
+                st.error("   - Check requirements.txt has transformers>=4.30.0")
+                st.error("3. **Temporary HuggingFace outage**")
+                st.error("   - Check https://status.huggingface.co/")
+                st.info("💡 **Quick Fix**: Try deploying on a different platform (Railway, Render, or local)")
             else:
                 st.error("❓ **Unknown Issue**")
                 st.error("- Try clearing cache (sidebar)")
                 st.error("- Refresh the page")
+                st.error("- Check https://status.huggingface.co/")
                 st.error("- Contact support if persists")
 
             raise
