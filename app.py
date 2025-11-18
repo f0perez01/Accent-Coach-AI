@@ -208,17 +208,45 @@ def align_per_word(lexicon: List[Tuple[str, str]], rec_tokens: List[str]):
 
 @st.cache_resource
 def load_asr_model(model_name: str, hf_token: Optional[str] = None):
-    """Load and cache ASR model"""
+    """Load and cache ASR model with fallback to smaller model if needed"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     kwargs = {}
     if hf_token:
         kwargs["use_auth_token"] = hf_token
 
-    with st.spinner(f"Loading model {model_name}..."):
-        processor = AutoProcessor.from_pretrained(model_name, **kwargs)
-        model = AutoModelForCTC.from_pretrained(model_name, **kwargs).to(device)
+    # Try loading the requested model
+    try:
+        with st.spinner(f"Loading model {model_name}..."):
+            processor = AutoProcessor.from_pretrained(model_name, **kwargs)
+            model = AutoModelForCTC.from_pretrained(model_name, **kwargs).to(device)
+        return processor, model, device
 
-    return processor, model, device
+    except Exception as e:
+        # If loading fails and it's not already the base model, try fallback
+        if model_name != DEFAULT_MODEL:
+            st.warning(f"⚠️ Failed to load {model_name}. Falling back to {DEFAULT_MODEL}")
+            st.warning(f"Error: {str(e)[:200]}")
+
+            try:
+                with st.spinner(f"Loading fallback model {DEFAULT_MODEL}..."):
+                    processor = AutoProcessor.from_pretrained(DEFAULT_MODEL, **kwargs)
+                    model = AutoModelForCTC.from_pretrained(DEFAULT_MODEL, **kwargs).to(device)
+                st.success(f"✓ Successfully loaded fallback model: {DEFAULT_MODEL}")
+                return processor, model, device
+            except Exception as e2:
+                st.error(f"❌ Failed to load fallback model: {str(e2)[:200]}")
+                st.error("Please try again later or contact support.")
+                raise
+        else:
+            # Already trying base model and it failed
+            st.error(f"❌ Failed to load model {model_name}")
+            st.error(f"Error: {str(e)[:200]}")
+            st.error("This might be due to:")
+            st.error("- Insufficient disk space (common on Streamlit Cloud free tier)")
+            st.error("- Network connectivity issues")
+            st.error("- Hugging Face Hub downtime")
+            st.info("💡 Tip: If on Streamlit Cloud, try clearing the cache: Settings → Clear cache")
+            raise
 
 
 # ============================================================================
@@ -608,6 +636,13 @@ def main():
         device = "CUDA" if torch.cuda.is_available() else "CPU"
         st.info(f"Device: {device}")
         st.caption(f"Model: {model_choice}")
+
+        # Cache management
+        st.divider()
+        if st.button("🗑️ Clear Model Cache", help="Clear cached models to free up space"):
+            st.cache_resource.clear()
+            st.success("✓ Cache cleared! Page will reload.")
+            st.rerun()
 
     # Main panel
     st.header("📝 Reference Text")
