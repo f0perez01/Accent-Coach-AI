@@ -1,0 +1,28 @@
+# --- Core AI ---
+torch>=2.0.0
+torchaudio
+transformers
+numpy
+soundfile
+requests
+groq
+
+# --- Audio conversion ---
+librosa
+scipy
+
+# --- Phoneme generation ---
+gruut
+gruut_lang_en
+phonemizer
+
+# --- Alignment ---
+sequence_align
+python-Levenshtein
+
+# --- Streamlit Interface ---
+streamlit>=1.28.0
+audio-recorder-streamlit>=0.0.8
+plotly>=5.17.0
+pandas>=2.0.0
+matplotlib>=3.7.0
