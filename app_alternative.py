@@ -175,7 +175,7 @@ def load_asr_model(model_name: str, hf_token: Optional[str] = None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     kwargs = {}
     if hf_token:
-        kwargs["use_auth_token"] = hf_token
+        kwargs["token"] = hf_token
 
     with st.spinner(f"Loading model {model_name}..."):
         processor = AutoProcessor.from_pretrained(model_name, **kwargs)

@@ -211,14 +211,10 @@ def load_asr_model(model_name: str, hf_token: Optional[str] = None):
     """Load and cache ASR model with fallback to smaller model if needed"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     kwargs = {}
+    
+    # Use only 'token' parameter (new standard in transformers 4.x+)
     if hf_token:
-        kwargs["use_auth_token"] = hf_token
-
-    # Update kwargs for newer transformers versions
-    if hf_token:
-        # Try both parameter names for compatibility
         kwargs["token"] = hf_token
-        kwargs["use_auth_token"] = hf_token
 
     # Try loading the requested model
     try:
