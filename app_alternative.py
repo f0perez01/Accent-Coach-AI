@@ -501,7 +501,7 @@ def init_session_state():
         st.session_state.current_result = None
     if 'config' not in st.session_state:
         st.session_state.config = {
-            'model_name': MODEL_OPTIONS["Wav2Vec2 Large (Orthographic - Recommended)"],
+            'model_name': DEFAULT_MODEL,  # Use base model by default (cloud-friendly)
             'use_g2p': True,
             'use_llm': True,
             'lang': 'en-us'
