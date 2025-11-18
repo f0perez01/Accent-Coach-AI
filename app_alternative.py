@@ -170,17 +170,23 @@ def align_per_word(lexicon: List[Tuple[str, str]], rec_tokens: List[str]):
 # ============================================================================
 
 @st.cache_resource
-def load_asr_model(model_name: str, hf_token: Optional[str] = None):
-    """Load and cache ASR model"""
+def _load_model_internal(model_name: str, hf_token: Optional[str] = None):
+    """Internal function to load model (cacheable, no Streamlit UI elements)"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     kwargs = {}
     if hf_token:
         kwargs["token"] = hf_token
 
-    with st.spinner(f"Loading model {model_name}..."):
-        processor = AutoProcessor.from_pretrained(model_name, **kwargs)
-        model = AutoModelForCTC.from_pretrained(model_name, **kwargs).to(device)
+    processor = AutoProcessor.from_pretrained(model_name, **kwargs)
+    model = AutoModelForCTC.from_pretrained(model_name, **kwargs).to(device)
 
+    return processor, model, device
+
+
+def load_asr_model(model_name: str, hf_token: Optional[str] = None):
+    """Load and cache ASR model"""
+    with st.spinner(f"Loading model {model_name}..."):
+        processor, model, device = _load_model_internal(model_name, hf_token)
     return processor, model, device
 
 

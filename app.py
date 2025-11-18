@@ -207,8 +207,8 @@ def align_per_word(lexicon: List[Tuple[str, str]], rec_tokens: List[str]):
 # ============================================================================
 
 @st.cache_resource
-def load_asr_model(model_name: str, hf_token: Optional[str] = None):
-    """Load and cache ASR model with fallback to smaller model if needed"""
+def _load_model_internal(model_name: str, hf_token: Optional[str] = None):
+    """Internal function to load model (cacheable, no Streamlit UI elements)"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     kwargs = {}
     
@@ -216,29 +216,32 @@ def load_asr_model(model_name: str, hf_token: Optional[str] = None):
     if hf_token:
         kwargs["token"] = hf_token
 
+    # Load processor
+    processor = AutoProcessor.from_pretrained(
+        model_name,
+        **kwargs,
+        trust_remote_code=False,
+        local_files_only=False
+    )
+
+    # Load model
+    model = AutoModelForCTC.from_pretrained(
+        model_name,
+        **kwargs,
+        trust_remote_code=False,
+        local_files_only=False
+    ).to(device)
+
+    return processor, model, device
+
+
+def load_asr_model(model_name: str, hf_token: Optional[str] = None):
+    """Load and cache ASR model with fallback to smaller model if needed"""
     # Try loading the requested model
     try:
         with st.spinner(f"📥 Downloading model: {model_name}...\nThis may take 30-60 seconds on first run."):
-            # Load processor
-            st.toast("Loading processor...")
-            processor = AutoProcessor.from_pretrained(
-                model_name,
-                **kwargs,
-                trust_remote_code=False,
-                local_files_only=False
-            )
-
-            # Load model
-            st.toast("Loading model weights...")
-            model = AutoModelForCTC.from_pretrained(
-                model_name,
-                **kwargs,
-                trust_remote_code=False,
-                local_files_only=False
-            ).to(device)
-
+            processor, model, device = _load_model_internal(model_name, hf_token)
             st.toast(f"✅ Model ready: {model_name}", icon="✅")
-
         return processor, model, device
 
     except Exception as e:
@@ -252,8 +255,7 @@ def load_asr_model(model_name: str, hf_token: Optional[str] = None):
 
             try:
                 with st.spinner(f"📥 Loading fallback model {DEFAULT_MODEL}..."):
-                    processor = AutoProcessor.from_pretrained(DEFAULT_MODEL, **kwargs)
-                    model = AutoModelForCTC.from_pretrained(DEFAULT_MODEL, **kwargs).to(device)
+                    processor, model, device = _load_model_internal(DEFAULT_MODEL, hf_token)
 
                 st.success(f"✅ Successfully loaded fallback model: {DEFAULT_MODEL}")
                 st.info("💡 Consider selecting 'Wav2Vec2 Base' in Advanced Settings for faster loading")
