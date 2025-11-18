@@ -216,36 +216,67 @@ def load_asr_model(model_name: str, hf_token: Optional[str] = None):
 
     # Try loading the requested model
     try:
-        with st.spinner(f"Loading model {model_name}..."):
+        with st.spinner(f"📥 Downloading model: {model_name}...\nThis may take 30-60 seconds on first run."):
+            # Load processor
+            st.toast("Loading processor...")
             processor = AutoProcessor.from_pretrained(model_name, **kwargs)
+
+            # Load model
+            st.toast("Loading model weights...")
             model = AutoModelForCTC.from_pretrained(model_name, **kwargs).to(device)
+
+            st.toast(f"✅ Model ready: {model_name}", icon="✅")
+
         return processor, model, device
 
     except Exception as e:
+        error_msg = str(e)
+
         # If loading fails and it's not already the base model, try fallback
         if model_name != DEFAULT_MODEL:
-            st.warning(f"⚠️ Failed to load {model_name}. Falling back to {DEFAULT_MODEL}")
-            st.warning(f"Error: {str(e)[:200]}")
+            st.warning(f"⚠️ Failed to load {model_name}")
+            st.warning(f"Error: {error_msg[:200]}")
+            st.info(f"🔄 Trying fallback model: {DEFAULT_MODEL}")
 
             try:
-                with st.spinner(f"Loading fallback model {DEFAULT_MODEL}..."):
+                with st.spinner(f"📥 Loading fallback model {DEFAULT_MODEL}..."):
                     processor = AutoProcessor.from_pretrained(DEFAULT_MODEL, **kwargs)
                     model = AutoModelForCTC.from_pretrained(DEFAULT_MODEL, **kwargs).to(device)
-                st.success(f"✓ Successfully loaded fallback model: {DEFAULT_MODEL}")
+
+                st.success(f"✅ Successfully loaded fallback model: {DEFAULT_MODEL}")
+                st.info("💡 Consider selecting 'Wav2Vec2 Base' in Advanced Settings for faster loading")
                 return processor, model, device
+
             except Exception as e2:
-                st.error(f"❌ Failed to load fallback model: {str(e2)[:200]}")
-                st.error("Please try again later or contact support.")
+                st.error(f"❌ Failed to load fallback model")
+                st.error(f"Fallback error: {str(e2)[:200]}")
+                st.error("😞 Unable to proceed. Please try:")
+                st.error("1. Clear cache (sidebar)")
+                st.error("2. Refresh the page")
+                st.error("3. Try again in a few minutes")
                 raise
         else:
             # Already trying base model and it failed
             st.error(f"❌ Failed to load model {model_name}")
-            st.error(f"Error: {str(e)[:200]}")
-            st.error("This might be due to:")
-            st.error("- Insufficient disk space (common on Streamlit Cloud free tier)")
-            st.error("- Network connectivity issues")
-            st.error("- Hugging Face Hub downtime")
-            st.info("💡 Tip: If on Streamlit Cloud, try clearing the cache: Settings → Clear cache")
+            st.error(f"Error: {error_msg[:300]}")
+
+            # Provide specific guidance based on error type
+            if "disk" in error_msg.lower() or "space" in error_msg.lower():
+                st.error("🗄️ **Disk Space Issue**")
+                st.error("- On Streamlit Cloud free tier, space is limited")
+                st.error("- Click 'Clear Model Cache' in sidebar")
+                st.error("- Or upgrade to Streamlit Cloud Pro")
+            elif "connect" in error_msg.lower() or "timeout" in error_msg.lower():
+                st.error("🌐 **Network Issue**")
+                st.error("- Check your internet connection")
+                st.error("- Try refreshing the page")
+                st.error("- Hugging Face Hub might be down")
+            else:
+                st.error("❓ **Unknown Issue**")
+                st.error("- Try clearing cache (sidebar)")
+                st.error("- Refresh the page")
+                st.error("- Contact support if persists")
+
             raise
 
 
