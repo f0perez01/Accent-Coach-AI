@@ -637,8 +637,39 @@ def main():
         st.info(f"Device: {device}")
         st.caption(f"Model: {model_choice}")
 
-        # Cache management
+        # Model verification and cache management
         st.divider()
+        st.subheader("🔧 Model Status")
+
+        # Test model load button
+        if st.button("✅ Test Model Download", help="Verify that the model can be downloaded"):
+            with st.spinner("Testing model download..."):
+                try:
+                    # Try to load the configured model
+                    test_model = st.session_state.config['model_name']
+                    processor, model, device = load_asr_model(test_model, hf_token)
+
+                    # If successful, show success
+                    st.success(f"✅ Model loaded successfully!")
+                    st.info(f"📦 Model: {test_model}")
+                    st.info(f"💻 Device: {device}")
+
+                    # Show model size info
+                    try:
+                        param_count = sum(p.numel() for p in model.parameters())
+                        st.caption(f"Parameters: {param_count:,}")
+                    except:
+                        pass
+
+                except Exception as e:
+                    st.error("❌ Model download failed!")
+                    st.error(f"Error: {str(e)[:300]}")
+                    st.warning("💡 Try:")
+                    st.warning("1. Clear cache (button below)")
+                    st.warning("2. Use 'Wav2Vec2 Base' model")
+                    st.warning("3. Check your internet connection")
+
+        # Clear cache button
         if st.button("🗑️ Clear Model Cache", help="Clear cached models to free up space"):
             st.cache_resource.clear()
             st.success("✓ Cache cleared! Page will reload.")
