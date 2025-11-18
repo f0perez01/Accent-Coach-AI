@@ -623,44 +623,37 @@ def main():
     if audio_bytes:
         st.success("✓ Recording captured!")
 
-        # Get audio data
-        audio_data = audio_bytes.getvalue()
+        # Safe extraction
+        audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, "getvalue") else audio_bytes
 
-        # Show audio info
         audio_size = len(audio_data) / 1024  # KB
         st.caption(f"Audio size: {audio_size:.1f} KB")
 
-        # Diagnostic: Try to load and analyze the audio
+        # Diagnostics
         with st.expander("🔍 Audio Diagnostics (click to expand)"):
             try:
                 import soundfile as sf
-                import io
 
-                # Load audio
                 audio_file = io.BytesIO(audio_data)
                 waveform, sr = sf.read(audio_file, dtype='float32')
 
-                # Show stats
                 st.write(f"Sample rate: {sr} Hz")
                 st.write(f"Duration: {len(waveform) / sr:.2f} seconds")
                 st.write(f"Samples: {len(waveform)}")
-                st.write(f"Channels: {waveform.ndim if waveform.ndim == 1 else waveform.shape[1]}")
-                st.write(f"Min amplitude: {waveform.min():.4f}")
-                st.write(f"Max amplitude: {waveform.max():.4f}")
-                st.write(f"Mean amplitude: {waveform.mean():.4f}")
-
-                # Check if audio is silent
-                if abs(waveform.max()) < 0.001 and abs(waveform.min()) < 0.001:
-                    st.error("⚠️ WARNING: Audio appears to be silent or nearly silent!")
-                    st.warning("This might indicate a microphone permission issue or hardware problem.")
-                else:
-                    st.success("✓ Audio contains sound data")
 
             except Exception as e:
                 st.error(f"Could not analyze audio: {e}")
 
-        # Play the audio
-        st.audio(audio_bytes, format="audio/wav")
+        # FIXED PLAYBACK
+        try:
+            st.audio(audio_data, format="audio/wav")
+        except Exception:
+            st.warning("⚠️ Retrying audio playback with fallback...")
+            try:
+                st.audio(bytes(audio_data), format="audio/wav")
+            except:
+                st.error("❌ Audio playback failed.")
+
 
     # Analysis button
     if audio_bytes:
