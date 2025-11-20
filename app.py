@@ -24,6 +24,7 @@ import plotly.express as px
 from transformers import AutoProcessor, AutoModelForCTC
 from phonemizer.punctuation import Punctuation
 from sequence_align.pairwise import needleman_wunsch
+from gtts import gTTS
 
 try:
     from groq import Groq
@@ -78,6 +79,19 @@ DEFAULT_MODEL = "facebook/wav2vec2-base-960h"
 # ============================================================================
 # AUDIO PROCESSING FUNCTIONS (from run_mdd.py)
 # ============================================================================
+
+@st.cache_data
+def generate_tts_audio(text: str, lang: str = "en") -> Optional[bytes]:
+    """Generate TTS audio using gTTS"""
+    try:
+        tts = gTTS(text=text, lang=lang, slow=False)
+        mp3_fp = io.BytesIO()
+        tts.write_to_fp(mp3_fp)
+        mp3_fp.seek(0)
+        return mp3_fp.getvalue()
+    except Exception as e:
+        st.error(f"TTS generation failed: {e}")
+        return None
 
 def load_audio_from_bytes(audio_bytes: bytes, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
     """Load audio from bytes and convert to numpy array"""
@@ -345,6 +359,7 @@ def transcribe_audio(audio: np.ndarray, sr: int, processor, model, device,
     return decoded, recorded_phoneme_str
 
 
+@st.cache_data
 def generate_reference_phonemes(text: str, lang: str = "en-us") -> Tuple[List[Tuple[str, str]], List[str]]:
     """Generate reference phonemes from text using gruut"""
     from gruut import sentences
@@ -736,6 +751,23 @@ def main():
     st.header("📝 Reference Text")
     st.markdown(f"### {reference_text}")
     st.caption(f"Length: {len(reference_text.split())} words")
+
+    # --- STUDY PHASE ---
+    col_ph, col_tts = st.columns([3, 1])
+    
+    with col_ph:
+        # 1. Visual Phonemes
+        with st.spinner("Generating phonetic transcription..."):
+            lexicon, _ = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
+            phoneme_text = " ".join([phon for _, phon in lexicon])
+            st.info(f"**IPA:** /{phoneme_text}/")
+
+    with col_tts:
+        # 2. TTS Audio
+        tts_audio = generate_tts_audio(reference_text)
+        if tts_audio:
+            st.audio(tts_audio, format="audio/mp3")
+            st.caption("🎧 Listen to native")
 
     st.divider()
 
