@@ -12,6 +12,8 @@ import tempfile
 from datetime import datetime
 from typing import List, Tuple, Dict, Optional
 import json
+import base64
+import streamlit.components.v1 as components
 
 import streamlit as st
 import numpy as np
@@ -625,6 +627,91 @@ def plot_error_distribution(metrics: Dict):
     return fig
 
 
+def render_karaoke_player(audio_bytes: bytes, phoneme_text: str):
+    """Render a custom HTML/JS player with karaoke-style text animation"""
+    b64_audio = base64.b64encode(audio_bytes).decode()
+    
+    html_code = f"""
+    <div style="
+        background-color: #f0f2f6;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 20px;
+        border: 1px solid #e0e0e0;
+    ">
+        <div id="phoneme-display" style="
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            background: linear-gradient(to right, #FF4B4B 50%, #cccccc 50%);
+            background-size: 200% 100%;
+            background-position: 100% 0;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            transition: background-position linear;
+        ">/{phoneme_text}/</div>
+
+        <button id="play-btn" onclick="togglePlay()" style="
+            background-color: #FF4B4B;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        ">
+            <span>▶</span> Listen & Read
+        </button>
+
+        <audio id="audio-player" style="display:none">
+            <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
+        </audio>
+    </div>
+
+    <script>
+        const audio = document.getElementById('audio-player');
+        const display = document.getElementById('phoneme-display');
+        const btn = document.getElementById('play-btn');
+        
+        // Set animation duration when metadata is loaded
+        audio.onloadedmetadata = function() {{
+            display.style.transitionDuration = audio.duration + 's';
+        }};
+
+        function togglePlay() {{
+            if (audio.paused) {{
+                audio.play();
+                btn.innerHTML = '<span>⏸</span> Pause';
+                display.style.backgroundPosition = '0 0';
+            }} else {{
+                audio.pause();
+                btn.innerHTML = '<span>▶</span> Listen & Read';
+                // Optional: Pause animation logic could go here
+            }}
+        }}
+
+        audio.onended = function() {{
+            btn.innerHTML = '<span>▶</span> Listen & Read';
+            // Reset animation without transition
+            display.style.transition = 'none';
+            display.style.backgroundPosition = '100% 0';
+            // Force reflow
+            void display.offsetWidth;
+            // Restore transition
+            display.style.transition = 'background-position linear';
+            display.style.transitionDuration = audio.duration + 's';
+        }};
+    </script>
+    """
+    components.html(html_code, height=150)
+
+
+
 # ============================================================================
 # STREAMLIT APP
 # ============================================================================
@@ -753,21 +840,18 @@ def main():
     st.caption(f"Length: {len(reference_text.split())} words")
 
     # --- STUDY PHASE ---
-    col_ph, col_tts = st.columns([3, 1])
-    
-    with col_ph:
-        # 1. Visual Phonemes
-        with st.spinner("Generating phonetic transcription..."):
-            lexicon, _ = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
-            phoneme_text = " ".join([phon for _, phon in lexicon])
-            st.info(f"**IPA:** /{phoneme_text}/")
-
-    with col_tts:
-        # 2. TTS Audio
+    # 1. Generate Data
+    with st.spinner("Preparing study materials..."):
+        lexicon, _ = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
+        phoneme_text = " ".join([phon for _, phon in lexicon])
         tts_audio = generate_tts_audio(reference_text)
-        if tts_audio:
-            st.audio(tts_audio, format="audio/mp3")
-            st.caption("🎧 Listen to native")
+
+    # 2. Render Karaoke Player
+    if tts_audio:
+        render_karaoke_player(tts_audio, phoneme_text)
+    else:
+        st.info(f"**IPA:** /{phoneme_text}/")
+        st.warning("Audio generation failed.")
 
     st.divider()
 
