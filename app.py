@@ -828,52 +828,58 @@ def render_karaoke_player(audio_bytes: bytes, reference_text: str, phoneme_text:
 
 def render_ipa_guide_component(text: str, lang: str = "en-us"):
     """
-    Renderiza una guía educativa que desglosa el IPA palabra por palabra
-    y explica los símbolos encontrados.
+    Renderiza una guía educativa con reproductores de audio individuales
+    por palabra usando un diseño de filas y columnas (Grid Layout).
     """
     from gruut import sentences
     
-    # 1. Procesar texto para obtener pares Palabra -> Fonemas
+    # 1. Procesar texto
     breakdown_data = []
     unique_symbols = set()
     
-    # Limpieza básica
     clean_text = Punctuation(';:,.!?"()').remove(text)
+    
+    # Usamos un contador global para evitar IDs duplicados en los reproductores
+    word_counter = 0 
     
     for sent in sentences(clean_text, lang=lang):
         for w in sent:
             word_text = w.text
-            # Intentar obtener fonemas
             try:
                 phonemes_list = w.phonemes
                 phoneme_str = "".join(phonemes_list)
                 
-                # Recolectar símbolos para el glosario
+                # Recolectar símbolos para glosario
                 for p in phonemes_list:
-                    # Limpiar marcadores de acento para la búsqueda en diccionario
                     clean_p = p.replace("ˈ", "").replace("ˌ", "")
                     if clean_p in IPA_DEFINITIONS:
                         unique_symbols.add(clean_p)
-                    elif p in IPA_DEFINITIONS: # Probar con acento si existe
+                    elif p in IPA_DEFINITIONS:
                         unique_symbols.add(p)
                 
-                # Crear "Sound Hint" simple (concatenación de ayudas)
+                # Pistas
                 hints = []
                 for p in phonemes_list:
                     clean_p = p.replace("ˈ", "").replace("ˌ", "")
                     if clean_p in IPA_DEFINITIONS:
-                        # Tomamos solo la parte corta "u corta" de "u corta (good)"
                         desc = IPA_DEFINITIONS[clean_p].split('(')[0].strip()
                         hints.append(desc)
                 
-                hint_str = " + ".join(hints[:3]) # Limitar a 3 para no saturar
+                hint_str = " + ".join(hints[:3])
                 if len(hints) > 3: hint_str += "..."
 
+                # Generar audio individual para esta palabra
+                # Nota: Esto puede tardar un poco si la frase es muy larga
+                word_audio = generate_tts_audio(word_text, lang=lang)
+
                 breakdown_data.append({
-                    "Palabra": word_text,
-                    "IPA": f"/{phoneme_str}/",
-                    "Pista de Sonido": hint_str
+                    "index": word_counter,
+                    "word": word_text,
+                    "ipa": f"/{phoneme_str}/",
+                    "hint": hint_str,
+                    "audio": word_audio
                 })
+                word_counter += 1
                 
             except Exception:
                 continue
@@ -884,37 +890,57 @@ def render_ipa_guide_component(text: str, lang: str = "en-us"):
         tab1, tab2 = st.tabs(["🧩 Desglose por Palabra", "📚 Glosario de Símbolos"])
         
         with tab1:
-            st.markdown("#### 🕵️‍♀️ Decodificando la frase")
-            st.markdown("Lee la frase palabra por palabra con su transcripción fonética:")
+            st.markdown("#### 🕵️‍♀️ Práctica de Drilling")
+            st.markdown("Escucha y repite palabra por palabra:")
             
+            # --- ENCABEZADOS DE LA TABLA ---
+            # Ajustamos los ratios de las columnas para que se vea ordenado
+            h1, h2, h3, h4 = st.columns([1.5, 1.5, 2.5, 1.5])
+            h1.markdown("**Palabra**")
+            h2.markdown("**IPA**")
+            h3.markdown("**Pista**")
+            h4.markdown("**Audio**")
+            
+            st.divider() # Línea separadora
+            
+            # --- FILAS DE DATOS ---
             if breakdown_data:
-                df = pd.DataFrame(breakdown_data)
-                st.dataframe(
-                    df, 
-                    column_config={
-                        "Palabra": st.column_config.TextColumn("Palabra", width="small"),
-                        "IPA": st.column_config.TextColumn("IPA", width="medium"),
-                        "Pista de Sonido": st.column_config.TextColumn("Componentes", width="large"),
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
+                for item in breakdown_data:
+                    c1, c2, c3, c4 = st.columns([1.5, 1.5, 2.5, 1.5])
+                    
+                    # Alineación vertical visual usando padding o markdown
+                    with c1:
+                        st.markdown(f"### {item['word']}")
+                    
+                    with c2:
+                        # Usamos st.code para resaltar el IPA
+                        st.code(item['ipa'], language=None)
+                        
+                    with c3:
+                        if item['hint']:
+                            st.caption(f"💡 {item['hint']}")
+                        else:
+                            st.caption("-")
+                            
+                    with c4:
+                        if item['audio']:
+                            # key es vital aquí para evitar conflictos
+                            st.audio(item['audio'], format="audio/mp3")
+                    
+                    # Separador ligero entre filas
+                    st.markdown("<hr style='margin: 5px 0; opacity: 0.2;'>", unsafe_allow_html=True)
             else:
-                st.warning("No se pudo generar el desglose fonético.")
+                st.warning("No se pudo procesar el desglose fonético.")
 
         with tab2:
-            st.markdown("#### 🗝️ Símbolos Clave en esta Frase")
-            st.markdown("Estos son los sonidos específicos que necesitas dominar para esta oración:")
+            st.markdown("#### 🗝️ Símbolos Clave")
+            st.markdown("Glosario de símbolos encontrados en esta frase:")
             
-            # Filtrar el diccionario global solo con los símbolos presentes
             cols = st.columns(2)
             for i, sym in enumerate(sorted(unique_symbols)):
                 definition = IPA_DEFINITIONS.get(sym, "Sonido específico")
-                # Alternar columnas
                 with cols[i % 2]:
                     st.info(f"**{sym}** : {definition}")
-
-        st.caption("💡 **Tip:** Céntrate en los símbolos rojos/fuertes (vocales tónicas) para dar el ritmo correcto.")
 
 
 # ============================================================================
