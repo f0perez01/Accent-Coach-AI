@@ -78,6 +78,33 @@ MODEL_OPTIONS = {
 # Default model - use Base for cloud deployments (smaller, faster)
 DEFAULT_MODEL = "facebook/wav2vec2-base-960h"
 
+# Diccionario educativo de símbolos IPA (Inglés Americano General)
+IPA_DEFINITIONS = {
+    # Vocales
+    "i": "i larga (see)", "iː": "i larga (see)", 
+    "ɪ": "i corta (sit)", 
+    "e": "e cerrada (bed)", "ɛ": "e abierta (bet)", 
+    "æ": "a abierta (cat)", 
+    "ɑ": "a profunda (father)", "ɑː": "a profunda (father)",
+    "ɔ": "o abierta (thought)", "ɔː": "o larga (law)",
+    "ʊ": "u corta (good)", 
+    "u": "u larga (blue)", "uː": "u larga (blue)",
+    "ʌ": "u corta/seca (cup, up)", 
+    "ə": "Schwa (sonido neutro débil, 'uh')",
+    "ɜ": "er (bird)", "ɜː": "er larga (bird)",
+    # Diptongos
+    "aɪ": "ai (my)", "eɪ": "ei (say)", "ɔɪ": "oi (boy)",
+    "aʊ": "au (cow)", "oʊ": "ou (go)", "əʊ": "ou (go)",
+    # Consonantes especiales
+    "t͡ʃ": "ch (chair)", "d͡ʒ": "j (judge)", 
+    "ʃ": "sh (she)", "ʒ": "s suave (measure)",
+    "θ": "th (think - z española)", "ð": "th (this - d suave)",
+    "ŋ": "ng (sing)", "j": "y (yes)", "ɹ": "r suave inglesa",
+    "ʔ": "Glottal stop (parada de aire)",
+    "ˈ": "Acento principal (sílaba fuerte)",
+    "ˌ": "Acento secundario"
+}
+
 # ============================================================================
 # AUDIO PROCESSING FUNCTIONS (from run_mdd.py)
 # ============================================================================
@@ -799,6 +826,96 @@ def render_karaoke_player(audio_bytes: bytes, reference_text: str, phoneme_text:
     components.html(html_code, height=220)
 
 
+def render_ipa_guide_component(text: str, lang: str = "en-us"):
+    """
+    Renderiza una guía educativa que desglosa el IPA palabra por palabra
+    y explica los símbolos encontrados.
+    """
+    from gruut import sentences
+    
+    # 1. Procesar texto para obtener pares Palabra -> Fonemas
+    breakdown_data = []
+    unique_symbols = set()
+    
+    # Limpieza básica
+    clean_text = Punctuation(';:,.!?"()').remove(text)
+    
+    for sent in sentences(clean_text, lang=lang):
+        for w in sent:
+            word_text = w.text
+            # Intentar obtener fonemas
+            try:
+                phonemes_list = w.phonemes
+                phoneme_str = "".join(phonemes_list)
+                
+                # Recolectar símbolos para el glosario
+                for p in phonemes_list:
+                    # Limpiar marcadores de acento para la búsqueda en diccionario
+                    clean_p = p.replace("ˈ", "").replace("ˌ", "")
+                    if clean_p in IPA_DEFINITIONS:
+                        unique_symbols.add(clean_p)
+                    elif p in IPA_DEFINITIONS: # Probar con acento si existe
+                        unique_symbols.add(p)
+                
+                # Crear "Sound Hint" simple (concatenación de ayudas)
+                hints = []
+                for p in phonemes_list:
+                    clean_p = p.replace("ˈ", "").replace("ˌ", "")
+                    if clean_p in IPA_DEFINITIONS:
+                        # Tomamos solo la parte corta "u corta" de "u corta (good)"
+                        desc = IPA_DEFINITIONS[clean_p].split('(')[0].strip()
+                        hints.append(desc)
+                
+                hint_str = " + ".join(hints[:3]) # Limitar a 3 para no saturar
+                if len(hints) > 3: hint_str += "..."
+
+                breakdown_data.append({
+                    "Palabra": word_text,
+                    "IPA": f"/{phoneme_str}/",
+                    "Pista de Sonido": hint_str
+                })
+                
+            except Exception:
+                continue
+
+    # 2. Renderizar UI
+    with st.expander("📖 Guía de Pronunciación Paso a Paso (Decodificador)", expanded=False):
+        
+        tab1, tab2 = st.tabs(["🧩 Desglose por Palabra", "📚 Glosario de Símbolos"])
+        
+        with tab1:
+            st.markdown("#### 🕵️‍♀️ Decodificando la frase")
+            st.markdown("Lee la frase palabra por palabra con su transcripción fonética:")
+            
+            if breakdown_data:
+                df = pd.DataFrame(breakdown_data)
+                st.dataframe(
+                    df, 
+                    column_config={
+                        "Palabra": st.column_config.TextColumn("Palabra", width="small"),
+                        "IPA": st.column_config.TextColumn("IPA", width="medium"),
+                        "Pista de Sonido": st.column_config.TextColumn("Componentes", width="large"),
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.warning("No se pudo generar el desglose fonético.")
+
+        with tab2:
+            st.markdown("#### 🗝️ Símbolos Clave en esta Frase")
+            st.markdown("Estos son los sonidos específicos que necesitas dominar para esta oración:")
+            
+            # Filtrar el diccionario global solo con los símbolos presentes
+            cols = st.columns(2)
+            for i, sym in enumerate(sorted(unique_symbols)):
+                definition = IPA_DEFINITIONS.get(sym, "Sonido específico")
+                # Alternar columnas
+                with cols[i % 2]:
+                    st.info(f"**{sym}** : {definition}")
+
+        st.caption("💡 **Tip:** Céntrate en los símbolos rojos/fuertes (vocales tónicas) para dar el ritmo correcto.")
+
 
 # ============================================================================
 # STREAMLIT APP
@@ -937,6 +1054,12 @@ def main():
     # 2. Render Karaoke Player
     if tts_audio:
         render_karaoke_player(tts_audio, reference_text, phoneme_text)
+        
+        # === AQUÍ AGREGAMOS LA NUEVA GUÍA ===
+        st.markdown("---") # Separador sutil
+        render_ipa_guide_component(reference_text, st.session_state.config['lang'])
+        # ====================================
+        
     else:
         st.info(f"**IPA:** /{phoneme_text}/")
         st.warning("Audio generation failed.")
