@@ -627,46 +627,92 @@ def plot_error_distribution(metrics: Dict):
     return fig
 
 
-def render_karaoke_player(audio_bytes: bytes, phoneme_text: str):
-    """Render a custom HTML/JS player with karaoke-style text animation"""
+def render_karaoke_player(audio_bytes: bytes, reference_text: str, phoneme_text: str):
+    """
+    Render a custom HTML/JS player with:
+    - Speed control (0.5x, 0.75x, 1.0x)
+    - Dual text display (English + IPA)
+    - Dynamic synchronization
+    """
     b64_audio = base64.b64encode(audio_bytes).decode()
     
+    # Escapar comillas simples para JS
+    safe_ref_text = reference_text.replace("'", "\\'")
+    safe_phon_text = phoneme_text.replace("'", "\\'")
+
     html_code = f"""
     <div style="
-        background-color: #f0f2f6;
+        background-color: #f8f9fa;
         padding: 20px;
-        border-radius: 10px;
-        text-align: center;
-        margin-bottom: 20px;
-        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        border: 1px solid #e9ecef;
+        font-family: sans-serif;
     ">
-        <div id="phoneme-display" style="
-            font-family: 'Courier New', monospace;
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            background: linear-gradient(to right, #FF4B4B 50%, #cccccc 50%);
-            background-size: 200% 100%;
-            background-position: 100% 0;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            transition: background-position linear;
-        ">/{phoneme_text}/</div>
+        <!-- Speed Control -->
+        <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
+            <label style="font-size: 12px; color: #666; align-self: center;">SPEED:</label>
+            <select id="speed-select" onchange="changeSpeed()" style="
+                padding: 4px 8px;
+                border-radius: 4px;
+                border: 1px solid #ccc;
+                font-size: 12px;
+                cursor: pointer;
+            ">
+                <option value="0.5">0.5x (Slow)</option>
+                <option value="0.75">0.75x (Medium)</option>
+                <option value="1.0" selected>1.0x (Normal)</option>
+            </select>
+        </div>
 
-        <button id="play-btn" onclick="togglePlay()" style="
-            background-color: #FF4B4B;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        ">
-            <span>▶</span> Listen & Read
-        </button>
+        <!-- Dual Text Display -->
+        <div style="position: relative; margin-bottom: 20px; text-align: center;">
+            <!-- English Text -->
+            <div id="text-display" style="
+                font-size: 20px;
+                color: #2c3e50;
+                margin-bottom: 8px;
+                font-weight: 500;
+                background: linear-gradient(to right, #2c3e50 50%, #adb5bd 50%);
+                background-size: 200% 100%;
+                background-position: 100% 0;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                transition: background-position linear;
+            ">{reference_text}</div>
+            
+            <!-- IPA Text -->
+            <div id="phoneme-display" style="
+                font-family: 'Courier New', monospace;
+                font-size: 18px;
+                color: #FF4B4B;
+                background: linear-gradient(to right, #FF4B4B 50%, #ffcccc 50%);
+                background-size: 200% 100%;
+                background-position: 100% 0;
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                transition: background-position linear;
+            ">/{phoneme_text}/</div>
+        </div>
+
+        <!-- Controls -->
+        <div style="display: flex; justify-content: center; gap: 15px;">
+            <button id="play-btn" onclick="togglePlay()" style="
+                background-color: #FF4B4B;
+                color: white;
+                border: none;
+                padding: 10px 24px;
+                border-radius: 20px;
+                cursor: pointer;
+                font-size: 16px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                transition: background 0.2s;
+            ">
+                <span>▶</span> Play
+            </button>
+        </div>
 
         <audio id="audio-player" style="display:none">
             <source src="data:audio/mp3;base64,{b64_audio}" type="audio/mp3">
@@ -675,40 +721,82 @@ def render_karaoke_player(audio_bytes: bytes, phoneme_text: str):
 
     <script>
         const audio = document.getElementById('audio-player');
-        const display = document.getElementById('phoneme-display');
+        const textDisplay = document.getElementById('text-display');
+        const phonDisplay = document.getElementById('phoneme-display');
         const btn = document.getElementById('play-btn');
+        const speedSelect = document.getElementById('speed-select');
         
-        // Set animation duration when metadata is loaded
+        let animationId = null;
+
+        function changeSpeed() {{
+            audio.playbackRate = parseFloat(speedSelect.value);
+            updateTransitionDuration();
+        }}
+
+        function updateTransitionDuration() {{
+            if (!audio.duration) return;
+            const duration = audio.duration / audio.playbackRate;
+            const style = duration + 's';
+            textDisplay.style.transitionDuration = style;
+            phonDisplay.style.transitionDuration = style;
+        }}
+
         audio.onloadedmetadata = function() {{
-            display.style.transitionDuration = audio.duration + 's';
+            updateTransitionDuration();
         }};
 
         function togglePlay() {{
             if (audio.paused) {{
                 audio.play();
                 btn.innerHTML = '<span>⏸</span> Pause';
-                display.style.backgroundPosition = '0 0';
+                btn.style.backgroundColor = '#333';
+                
+                // Start visual sync
+                textDisplay.style.backgroundPosition = '0 0';
+                phonDisplay.style.backgroundPosition = '0 0';
             }} else {{
                 audio.pause();
-                btn.innerHTML = '<span>▶</span> Listen & Read';
-                // Optional: Pause animation logic could go here
+                btn.innerHTML = '<span>▶</span> Resume';
+                btn.style.backgroundColor = '#FF4B4B';
+                
+                // Pause visual sync (freeze current position)
+                const computedStyle = window.getComputedStyle(textDisplay);
+                const currentPos = computedStyle.backgroundPosition;
+                textDisplay.style.transition = 'none';
+                phonDisplay.style.transition = 'none';
+                textDisplay.style.backgroundPosition = currentPos;
+                phonDisplay.style.backgroundPosition = currentPos;
             }}
         }}
 
+        audio.onplay = function() {{
+            // Restore transition when playing
+            updateTransitionDuration();
+            textDisplay.style.transitionProperty = 'background-position';
+            textDisplay.style.transitionTimingFunction = 'linear';
+            phonDisplay.style.transitionProperty = 'background-position';
+            phonDisplay.style.transitionTimingFunction = 'linear';
+        }};
+
         audio.onended = function() {{
-            btn.innerHTML = '<span>▶</span> Listen & Read';
-            // Reset animation without transition
-            display.style.transition = 'none';
-            display.style.backgroundPosition = '100% 0';
+            btn.innerHTML = '<span>▶</span> Replay';
+            btn.style.backgroundColor = '#FF4B4B';
+            
+            // Reset animations
+            textDisplay.style.transition = 'none';
+            phonDisplay.style.transition = 'none';
+            textDisplay.style.backgroundPosition = '100% 0';
+            phonDisplay.style.backgroundPosition = '100% 0';
+            
             // Force reflow
-            void display.offsetWidth;
-            // Restore transition
-            display.style.transition = 'background-position linear';
-            display.style.transitionDuration = audio.duration + 's';
+            void textDisplay.offsetWidth;
+            
+            // Restore transitions for next play
+            setTimeout(updateTransitionDuration, 50);
         }};
     </script>
     """
-    components.html(html_code, height=150)
+    components.html(html_code, height=220)
 
 
 
@@ -848,7 +936,7 @@ def main():
 
     # 2. Render Karaoke Player
     if tts_audio:
-        render_karaoke_player(tts_audio, phoneme_text)
+        render_karaoke_player(tts_audio, reference_text, phoneme_text)
     else:
         st.info(f"**IPA:** /{phoneme_text}/")
         st.warning("Audio generation failed.")
