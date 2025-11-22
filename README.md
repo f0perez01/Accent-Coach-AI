@@ -139,6 +139,19 @@ streamlit run app.py
 
 The application will open in your default browser at `http://localhost:8501`
 
+## Vocabulary Coach MVP
+
+There is a minimal MVP for personalized vocabulary suggestions in `vocab_mvp.py`.
+
+Quick run (inside the repo, with your venv activated):
+
+```bash
+pip install streamlit sentence-transformers scikit-learn
+streamlit run vocab_mvp.py
+```
+
+The app accepts pasted or uploaded text, computes simple lexical metrics, and shows a ranked list of vocabulary suggestions. This is a lightweight prototype for pilot testing.
+
 ### Using the Application
 
 1. **Select a Practice Text**
