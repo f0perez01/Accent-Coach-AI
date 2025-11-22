@@ -139,25 +139,6 @@ def register_user(email, password):
     except Exception as e:
         return {"error": str(e)}
 
-# --- NEW LOGIN WITH GOOGLE (ID TOKEN → Firebase SignInWithIdP) ---
-
-def login_with_google(id_token):
-    """
-    Exchange Google ID token for Firebase user.
-    """
-    api_key = st.secrets["FIREBASE_WEB_API_KEY"]
-    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key={api_key}"
-
-    payload = {
-        "postBody": f"id_token={id_token}&providerId=google.com",
-        "requestUri": "http://localhost",
-        "returnIdpCredential": True,
-        "returnSecureToken": True
-    }
-
-    resp = requests.post(url, json=payload)
-    return resp.json()
-
 def save_analysis_to_firestore(user_id, original_text, result):
     db = get_db()
     if not db:
@@ -286,47 +267,6 @@ def main():
     if "user" not in st.session_state:
         st.session_state["user"] = None
 
-    if "_google_token" not in st.session_state:
-        st.session_state["_google_token"] = None
-
-    # If Google token arrived in URL
-    if "token" in st.query_params:
-        st.session_state["_google_token"] = st.query_params["token"]
-
-    # ---------------------------------------------------------
-    #              GOOGLE OAUTH BUTTON (JS)
-    # ---------------------------------------------------------
-    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
-
-    google_login_html = f"""
-    <div id="g_id_onload"
-         data-client_id="{GOOGLE_CLIENT_ID}"
-         data-context="signin"
-         data-ux_mode="popup"
-         data-callback="handleCredentialResponse">
-    </div>
-
-    <div class="g_id_signin"
-         data-type="standard"
-         data-shape="rectangular"
-         data-theme="outline"
-         data-text="signin_with"
-         data-size="large"
-         data-logo_alignment="left">
-    </div>
-
-    <script>
-    function handleCredentialResponse(response) {{
-        const token = response.credential;
-        const url = new URL(window.location.href);
-        url.searchParams.set("token", token);
-        window.location.href = url.toString();
-    }}
-    </script>
-
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    """
-
     # --- AUTH NOT LOGGED ---
     if not st.session_state["user"]:
         st.subheader("Welcome")
@@ -363,20 +303,6 @@ def main():
                             st.success("Account created successfully! Logging in...")
                             st.session_state["user"] = user_data
                             st.rerun()
-
-        st.markdown("---")
-        st.markdown("### Or Login with Google")
-        st.markdown(google_login_html, unsafe_allow_html=True)
-
-        # If Google token captured → sign in with Firebase
-        if st.session_state["_google_token"]:
-            result = login_with_google(st.session_state["_google_token"])
-            if "error" in result:
-                st.error(result["error"])
-            else:
-                st.session_state["user"] = result
-                st.session_state["_google_token"] = None
-                st.rerun()
 
         return  # end auth
 
