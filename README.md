@@ -148,6 +148,8 @@ Quick run (inside the repo, with your venv activated):
 ```bash
 pip install streamlit sentence-transformers scikit-learn
 streamlit run vocab_mvp.py
+python -m streamlit run vocab_mvp.py
+
 ```
 
 The app accepts pasted or uploaded text, computes simple lexical metrics, and shows a ranked list of vocabulary suggestions. This is a lightweight prototype for pilot testing.
