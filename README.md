@@ -58,6 +58,26 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### macOS Troubleshooting
+
+- If `pip install -r requirements.txt` fails while building native extensions (errors mentioning missing headers like `<cmath>` or failed `clang++`), install the Xcode Command Line Tools and re-run the install:
+
+```bash
+xcode-select --install
+# then (after install finishes)
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+- As an alternative, use `conda` or `mamba` with the `conda-forge` channel to install prebuilt native packages and avoid compilation on macOS:
+
+```bash
+conda create -n accent-coach python=3.11
+conda activate accent-coach
+conda install -c conda-forge python-crfsuite gruut gruut_lang_en soundfile ffmpeg
+pip install -r requirements.txt
+```
+
 **Note**: Installing PyTorch with CUDA support (optional):
 ```bash
 # For CUDA 11.8
