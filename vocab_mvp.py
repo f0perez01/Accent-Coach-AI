@@ -167,6 +167,31 @@ def save_analysis_to_firestore(user_id, original_text, result):
     except Exception as e:
         st.error(f"Error saving to DB: {e}")
 
+def get_user_analyses(user_id):
+    db = get_db()
+    if not db:
+        return []
+    try:
+        docs = db.collection("english_analyses").where("user_id", "==", user_id).stream()
+        data = []
+        for doc in docs:
+            d = doc.to_dict()
+            d['id'] = doc.id
+            data.append(d)
+        
+        # Sort by timestamp descending (handle missing timestamps)
+        def get_ts(x):
+            ts = x.get('timestamp')
+            if isinstance(ts, datetime):
+                return ts
+            return datetime.min
+            
+        data.sort(key=get_ts, reverse=True)
+        return data
+    except Exception as e:
+        st.error(f"Error fetching history: {e}")
+        return []
+
 # --- Lógica Backend estratégico (Groq) ---
 def get_full_analysis(text: str, api_key: str) -> dict:
     # Estructura por defecto si falla
@@ -346,6 +371,7 @@ def main():
 
     # --- LOGGED IN UI ---
     user_email = st.session_state["user"].get("email", "User")
+    user_id = st.session_state["user"].get("localId", user_email)
 
     with st.sidebar:
         st.write(f"Logged as **{user_email}**")
@@ -353,8 +379,47 @@ def main():
             st.session_state["user"] = None
             cookie_manager.delete("auth_token")
             st.rerun()
+        
+        st.markdown("---")
+        st.subheader("📜 History")
+        history = get_user_analyses(user_id)
+        
+        if history:
+            def format_option(doc):
+                ts = doc.get('timestamp')
+                date_str = ts.strftime('%d/%m %H:%M') if isinstance(ts, datetime) else "No Date"
+                text_preview = doc.get('original_text', '')[:25].replace("\n", " ")
+                return f"{date_str} - {text_preview}..."
+            
+            options = {format_option(h): h for h in history}
+            selection = st.selectbox("Load Analysis", ["New Analysis"] + list(options.keys()))
+            
+            if selection == "New Analysis":
+                if st.session_state.get("current_doc_id") is not None:
+                    st.session_state["current_doc_id"] = None
+                    st.session_state["user_text_input"] = ""
+                    if "result" in st.session_state: del st.session_state["result"]
+                    if "original" in st.session_state: del st.session_state["original"]
+                    st.rerun()
+            else:
+                doc = options[selection]
+                if st.session_state.get("current_doc_id") != doc['id']:
+                    st.session_state["current_doc_id"] = doc['id']
+                    st.session_state["user_text_input"] = doc.get('original_text', '')
+                    st.session_state["original"] = doc.get('original_text', '')
+                    st.session_state["result"] = {
+                        "metrics": doc.get("metrics", {}),
+                        "corrected": doc.get("corrected", ""),
+                        "improvements": doc.get("improvements", []),
+                        "expansion_words": doc.get("expansion_words", []),
+                        "questions": doc.get("questions", [])
+                    }
+                    st.rerun()
 
-    user_text = st.text_area("Write your story:", height=100)
+    if "user_text_input" not in st.session_state:
+        st.session_state["user_text_input"] = ""
+
+    user_text = st.text_area("Write your story:", height=100, key="user_text_input")
 
     if st.button("✨ Analyze & Expand"):
         if not user_text.strip():
