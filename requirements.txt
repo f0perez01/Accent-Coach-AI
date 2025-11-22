@@ -32,3 +32,6 @@ gTTS>=2.5.0
 
 # --- Database ---
 firebase-admin>=6.2.0
+
+# --- Components ---
+extra-streamlit-components>=0.1.60

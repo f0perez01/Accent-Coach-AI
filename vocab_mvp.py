@@ -5,9 +5,12 @@ import json
 import re
 import requests
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, auth
 from gtts import gTTS
 import streamlit.components.v1 as components
+import extra_streamlit_components as stx
+import time
+from datetime import datetime, timedelta
 
 # --- Configuración Mobile-First ---
 st.set_page_config(
@@ -139,6 +142,10 @@ def register_user(email, password):
     except Exception as e:
         return {"error": str(e)}
 
+# --- Cookie Manager ---
+def get_manager():
+    return stx.CookieManager(key="auth_cookies")
+
 def save_analysis_to_firestore(user_id, original_text, result):
     db = get_db()
     if not db:
@@ -262,10 +269,32 @@ def main():
     st.caption("Strategic Vocabulary Expansion")
 
     init_firebase()
+    cookie_manager = get_manager()
 
     # --- Session User ---
     if "user" not in st.session_state:
         st.session_state["user"] = None
+
+    # --- Check Cookies for Persistence ---
+    if not st.session_state["user"]:
+        # Try to get token from cookies
+        # Note: get() might return None initially, then trigger rerun
+        token = cookie_manager.get(cookie="auth_token")
+        if token:
+            try:
+                # Verify token with Firebase Admin
+                decoded_token = auth.verify_id_token(token)
+                # Reconstruct user object
+                st.session_state["user"] = {
+                    "localId": decoded_token["uid"],
+                    "email": decoded_token.get("email", ""),
+                    "idToken": token
+                }
+                st.toast(f"Welcome back, {decoded_token.get('email')}!")
+            except Exception as e:
+                # Token invalid or expired
+                # cookie_manager.delete("auth_token") # Optional: auto-clear
+                pass
 
     # --- AUTH NOT LOGGED ---
     if not st.session_state["user"]:
@@ -284,6 +313,11 @@ def main():
                         st.error(user_data["error"])
                     else:
                         st.session_state["user"] = user_data
+                        # Save token to cookie (expires in 7 days)
+                        if "idToken" in user_data:
+                            expires = datetime.now() + timedelta(days=7)
+                            cookie_manager.set("auth_token", user_data["idToken"], expires_at=expires)
+                            time.sleep(1) # Allow cookie to be set before rerun
                         st.rerun()
         
         with tab2:
@@ -302,6 +336,10 @@ def main():
                         else:
                             st.success("Account created successfully! Logging in...")
                             st.session_state["user"] = user_data
+                            if "idToken" in user_data:
+                                expires = datetime.now() + timedelta(days=7)
+                                cookie_manager.set("auth_token", user_data["idToken"], expires_at=expires)
+                                time.sleep(1) # Allow cookie to be set before rerun
                             st.rerun()
 
         return  # end auth
@@ -313,6 +351,7 @@ def main():
         st.write(f"Logged as **{user_email}**")
         if st.button("Logout"):
             st.session_state["user"] = None
+            cookie_manager.delete("auth_token")
             st.rerun()
 
     user_text = st.text_area("Write your story:", height=100)
