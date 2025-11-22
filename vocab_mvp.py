@@ -1,18 +1,18 @@
 import streamlit as st
 import os
 import io
-import json  # Agregamos JSON para robustez
+import json
 from gtts import gTTS
 
 # --- Configuración Mobile-First ---
 st.set_page_config(
-    page_title="Pocket English Coach",
-    page_icon="🎓",
+    page_title="Pocket English Coach - Strategic MVP",
+    page_icon="🚀",
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# --- CSS Pulido ---
+# --- CSS Pulido (Minimalismo + Badges) ---
 st.markdown("""
     <style>
     .stTextArea textarea { font-size: 16px !important; }
@@ -22,76 +22,98 @@ st.markdown("""
     .ipa-text {
         font-family: 'Lucida Sans Unicode', 'Arial Unicode MS', sans-serif;
         color: #555;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         background-color: #f0f2f6;
         padding: 2px 6px;
         border-radius: 4px;
-        margin-left: 8px;
+        margin-left: 6px;
     }
+    
+    /* Tarjeta de vocabulario (Expansion) */
     .vocab-card {
-        border-left: 3px solid #FF4B4B;
-        padding-left: 10px;
-        margin-bottom: 15px;
+        border-left: 4px solid #4CAF50; /* Verde para crecimiento */
+        padding-left: 12px;
+        margin-bottom: 16px;
+        background-color: #fafafa;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        border-radius: 0 8px 8px 0;
     }
+    
+    /* Métricas Header */
+    .metric-container {
+        display: flex;
+        justify-content: space-around;
+        margin-bottom: 20px;
+        background: #e8f5e9;
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid #c8e6c9;
+    }
+    .metric-box { text-align: center; }
+    .metric-val { font-size: 1.2rem; font-weight: bold; color: #2e7d32; }
+    .metric-label { font-size: 0.8rem; color: #666; }
+    
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
-# --- Lógica Backend Robusta ---
+# --- Lógica Backend Estratégica ---
 
 def get_full_analysis(text: str, api_key: str) -> dict:
     """
-    Usa JSON mode para garantizar que todas las secciones (Tabs)
-    reciban datos estructurados correctamente.
+    Analiza el texto buscando CORRECCIÓN (Pasado) y EXPANSIÓN (Futuro).
     """
     if not api_key:
-        return {"corrected": text, "explanation": "⚠️ No API Key", "questions": [], "vocab": []}
+        return {"corrected": text, "explanation": "⚠️ No API Key", "questions": [], "expansion": [], "metrics": {}}
 
     try:
         from groq import Groq
         client = Groq(api_key=api_key)
         
-        # Prompt optimizado para JSON structure
-        # Esto evita que el LLM rompa el formato con texto introductorio
+        # --- EL PROMPT MAESTRO (Ajustado a la Visión) ---
         prompt = (
-            f"Analyze this English student text: '{text}'. "
+            f"Analyze this English student text: '{text}'.\n"
+            f"Act as a strict but helpful Lexical Coach. Goal: Increase vocabulary sophistication.\n"
             f"Return a valid JSON object with exactly these keys:\n"
-            f"- 'corrected': The corrected version of the text (string).\n"
-            f"- 'improvements': A list of 3 short strings explaining grammar/vocab changes.\n"
-            f"- 'questions': A list of 2 follow-up questions (strings).\n"
-            f"- 'vocab': A list of 3 objects, each with keys: 'word', 'ipa', 'definition' (5 words max).\n"
-            f"Focus on interesting or complex words for the vocab section."
+            f"1. 'metrics': Object with 'cefr_level' (e.g. A2, B1, C2) and 'variety_score' (1-10 integer based on lexical diversity).\n"
+            f"2. 'corrected': The corrected version of the text (natural & native-like).\n"
+            f"3. 'improvements': List of 3 short strings explaining grammar errors corrected.\n"
+            f"4. 'expansion_words': List of 3 'Power Words' that the student DID NOT use but fits the context perfectly to replace simple words. "
+            f"   (Format: object with 'word', 'ipa', 'meaning_context', 'replaces_simple_word').\n"
+            f"5. 'questions': List of 2 follow-up questions to deepen the topic.\n"
+            f"Focus: 'expansion_words' must be the bridge to a higher level (B2->C1)."
         )
 
         chat_completion = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "You are a helpful ESL teacher. Output only JSON."},
+                {"role": "system", "content": "You are an expert Lexical Data Scientist. Output only JSON."},
                 {"role": "user", "content": prompt}
             ],
             model="llama-3.1-8b-instant",
             temperature=0.1,
-            response_format={"type": "json_object"} # Forzamos modo JSON
+            response_format={"type": "json_object"}
         )
         
-        response_content = chat_completion.choices[0].message.content
-        data = json.loads(response_content)
+        data = json.loads(chat_completion.choices[0].message.content)
 
-        # Validación de campos (Fallback por si algún campo viene vacío)
+        # Validación y Fallbacks
         return {
-            "corrected": data.get("corrected", text), # Si falla, devuelve original
+            "corrected": data.get("corrected", text),
             "explanation": "\n\n".join([f"• {i}" for i in data.get("improvements", [])]),
             "questions": data.get("questions", []),
-            "vocab": data.get("vocab", [])
+            "expansion": data.get("expansion_words", []), # Nueva clave estratégica
+            "metrics": data.get("metrics", {"cefr_level": "?", "variety_score": 0})
         }
 
     except Exception as e:
-        # En caso de error extremo, devolvemos estructura vacía segura
         return {
             "corrected": text, 
-            "explanation": f"Error analyzing text. Try again. ({str(e)})", 
+            "explanation": f"Error: {str(e)}", 
             "questions": [], 
-            "vocab": []
+            "expansion": [],
+            "metrics": {"cefr_level": "Error", "variety_score": 0}
         }
 
 def text_to_speech(text: str):
@@ -108,84 +130,92 @@ def text_to_speech(text: str):
 # --- UI Principal ---
 
 def main():
-    st.title("🎓 Pocket English Coach")
+    st.title("🚀 Pocket English Coach")
+    st.caption("Strategic Vocabulary Expansion")
     
-    user_text = st.text_area("Your Text", height=100, placeholder="Write here (e.g. I go to school yesterday...)")
+    user_text = st.text_area("Write your story:", height=100, placeholder="Yesterday I go to work and it was very hard...")
 
-    if st.button("✨ Analyze", type="primary"):
+    if st.button("✨ Analyze & Expand", type="primary"):
         if not user_text.strip():
             st.toast("Please write something!")
         else:
-            with st.spinner("Thinking..."):
+            with st.spinner("Measuring lexical density..."):
                 api_key = st.secrets.get('GROQ_API_KEY', os.environ.get('GROQ_API_KEY'))
                 result = get_full_analysis(user_text, api_key)
-                
-                # Guardamos en session state
                 st.session_state['result'] = result
                 st.session_state['original'] = user_text
 
     if 'result' in st.session_state:
         res = st.session_state['result']
-        st.markdown("---")
+        metrics = res.get('metrics', {})
         
-        # TABS
-        t1, t2, t3, t4 = st.tabs(["✅ Fix", "💡 Why", "🗣️ Chat", "📖 Vocab"])
+        # --- Dashboard Estratégico (Arriba) ---
+        st.markdown(f"""
+        <div class="metric-container">
+            <div class="metric-box">
+                <div class="metric-val">{metrics.get('cefr_level', 'N/A')}</div>
+                <div class="metric-label">Level Est.</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-val">{metrics.get('variety_score', 0)}/10</div>
+                <div class="metric-label">Lexical Score</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # --- TABS ---
+        t1, t2, t3, t4 = st.tabs(["✅ Fix", "💡 Why", "🗣️ Chat", "🚀 Grow"])
         
         with t1:
-            st.subheader("Native Version")
             st.success(res['corrected'])
-            # Audio y Copiar
             audio = text_to_speech(res['corrected'])
             if audio: st.audio(audio, format="audio/mp3")
-            st.caption("Copy text:")
-            st.code(res['corrected'], language=None)
+            st.caption("Corrected version")
 
         with t2:
-            st.subheader("Improvements")
-            # Si explanation viene vacía, mostramos mensaje default
-            if res['explanation']:
-                st.markdown(res['explanation'])
-            else:
-                st.info("No specific improvements needed.")
+            st.info("Grammar Fixes")
+            st.markdown(res['explanation'])
             st.markdown("---")
             st.caption("Original:")
             st.text(st.session_state['original'])
 
         with t3:
-            st.subheader("Deep Dive")
+            st.warning("Deepen the Topic")
             if res['questions']:
                 for q in res['questions']:
-                    st.info(f"❓ {q}")
-            else:
-                st.write("Write more text to generate discussion questions.")
+                    st.markdown(f"**❓ {q}**")
 
         with t4:
-            st.subheader("Oxford Style Vocab")
-            vocab = res.get('vocab', [])
+            st.subheader("Level Up Words")
+            st.caption("Words you DIDN'T use, but should have:")
             
-            if vocab:
-                for item in vocab:
-                    # Renderizado HTML seguro
+            expansion = res.get('expansion', [])
+            if expansion:
+                for item in expansion:
+                    # Tarjeta de Expansión Estratégica
                     html_content = f"""
                     <div class="vocab-card">
-                        <strong>{item.get('word', '')}</strong> 
-                        <span class="ipa-text">{item.get('ipa', '')}</span>
-                        <br>
-                        <em style="font-size:0.9rem; color:#666;">{item.get('definition', '')}</em>
+                        <div style="display:flex; justify-content:space-between;">
+                            <strong>{item.get('word', '')}</strong>
+                            <span class="ipa-text">{item.get('ipa', '')}</span>
+                        </div>
+                        <div style="font-size:0.85rem; color:#666; margin-top:4px;">
+                            Instead of: <em>"{item.get('replaces_simple_word', '...')}"</em>
+                        </div>
+                        <div style="font-size:0.9rem; margin-top:4px;">
+                            {item.get('meaning_context', '')}
+                        </div>
                     </div>
                     """
                     st.markdown(html_content, unsafe_allow_html=True)
                     
-                    # Audio individual por palabra
-                    col_a, col_b = st.columns([1, 4])
+                    # Audio mini
+                    col_a, col_b = st.columns([1, 5])
                     with col_a:
                         word_audio = text_to_speech(item.get('word', ''))
-                        if word_audio:
-                            st.audio(word_audio, format="audio/mp3")
-                    
-                    st.markdown("---")
+                        if word_audio: st.audio(word_audio, format="audio/mp3")
             else:
-                st.write("No complex vocabulary found in this text.")
+                st.write("Good variety! No immediate upgrades suggested.")
 
 if __name__ == "__main__":
     main()
