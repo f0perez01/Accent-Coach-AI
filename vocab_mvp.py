@@ -1,6 +1,8 @@
 import streamlit as st
 import json
 import os
+import io
+from gtts import gTTS
 from typing import List, Dict, Optional
 import sys
 from lexical.metrics import compute_metrics_for_text, load_basic_wordlists
@@ -333,9 +335,24 @@ def main():
         if st.session_state.get('groq_rewrite'):
             st.markdown("**Rewritten Text**")
             new_text = st.text_area("Rewritten text (Groq)", value=st.session_state['groq_rewrite'], height=180)
-            if st.button("💾 Save Rewritten Text as New Entry"):
-                add_text_for_user(user, new_text)
-                st.success("Rewritten text saved to the student's history.")
+            col_play, col_save = st.columns([1, 1])
+            with col_play:
+                if st.button("🔊 Play Rewritten (TTS)", key="play-rewrite"):
+                    with st.spinner("Generating TTS audio..."):
+                        try:
+                            tts = gTTS(text=new_text, lang='en', slow=False)
+                            mp3_fp = io.BytesIO()
+                            tts.write_to_fp(mp3_fp)
+                            mp3_fp.seek(0)
+                            audio_bytes = mp3_fp.getvalue()
+                            st.audio(audio_bytes, format="audio/mp3")
+                        except Exception as e:
+                            st.error(f"TTS generation failed: {e}")
+
+            with col_save:
+                if st.button("💾 Save Rewritten Text as New Entry"):
+                    add_text_for_user(user, new_text)
+                    st.success("Rewritten text saved to the student's history.")
 
         # Debug: show raw Groq rewrite if available
         if st.session_state.get('groq_raw_rewrite'):
