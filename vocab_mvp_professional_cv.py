@@ -191,31 +191,9 @@ def save_analysis_to_firestore(user_id, original_text, result):
 def selection_ui():
     st.subheader("🎯 Interview Preparation")
 
-    c1, c2, c3 = st.columns([3,2,1])
-    with c1:
-        st.session_state["filter_text"] = st.text_input("Search questions or keywords", key="filter_text", placeholder="e.g. system design, teamwork")
-    with c2:
-        mode = st.selectbox("Browse by:", ["Topic", "Category"])
-    with c3:
-        if st.button("Auto-fill"):
-            auto_fill()
-
     # build candidate list
-    candidates = []
-    if mode == "Topic":
-        group = st.selectbox("Select Topic Group", list(TOPICS.keys()))
-        candidates = TOPICS.get(group, [])
-    else:
-        cat = st.selectbox("Select Category", CATEGORIES)
-        for g_name, t_list in TOPICS.items():
-            for t in t_list:
-                if t.get("category") == cat:
-                    t_copy = t.copy(); t_copy["group_origin"] = g_name
-                    candidates.append(t_copy)
-
-    flt = st.session_state.get("filter_text", "").strip().lower()
-    if flt:
-        candidates = [t for t in candidates if flt in t["title"].lower() or flt in t["desc"].lower()]
+    group = st.selectbox("Select Topic Group", list(TOPICS.keys()))
+    candidates = TOPICS.get(group, [])
 
     # responsive grid (3 columns)
     cols = st.columns(3)
@@ -229,7 +207,7 @@ def selection_ui():
                     st.session_state["selected_ids"].discard(t["id"])
                 else:
                     st.session_state["selected_ids"].add(t["id"])
-                st.experimental_rerun()
+                st.rerun()
             # card body
             st.markdown(f"""
                 <div style="padding:8px; margin-top:6px; border-radius:8px; border:1px solid #e0e0e0; background:{'#e8f5e9' if selected else '#ffffff'};">
@@ -268,7 +246,7 @@ def selection_ui():
                 # Mark answered as soon as they start so gamification feels immediate
                 gained = add_xp_for_questions(st.session_state["current_batch_ids"])
                 st.toast(f"+{gained} XP — Good luck! 🚀")
-                st.experimental_rerun()
+                st.rerun()
 
 # -------------------------
 # Auto-fill logic
