@@ -442,56 +442,6 @@ def main():
                     }
                     st.rerun()
 
-    # --- TOPIC SELECTION ---
-    st.subheader("📚 History Topics")
-    nav_mode = st.radio("Browse by:", ["Course", "Stage"], horizontal=True)
-    
-    selected_topic_text = ""
-
-    if nav_mode == "Course":
-        curso = st.selectbox("Select Course:", list(TOPICS.keys()))
-        topics = TOPICS.get(curso, [])
-        
-        # Topic Cards
-        for t in topics:
-            with st.container():
-                st.markdown(f"""
-                <div class="vocab-card" style="border-left-color: #2196F3;">
-                    <div style="display:flex; justify-content:space-between;">
-                        <strong>{t['title']}</strong>
-                        <span class="ipa-text">{t['stage']}</span>
-                    </div>
-                    <div style="font-size:0.9rem; color:#666; margin-top:4px;">
-                        {t['desc']}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button(f"Select: {t['title']}", key=t['id']):
-                    selected_topic_text = f"Topic: {t['title']}\n\n"
-    else:
-        etapa = st.selectbox("Select Stage:", STAGES)
-        for curso, topics in TOPICS.items():
-            for t in topics:
-                if t['stage'] == etapa:
-                    with st.container():
-                        st.markdown(f"""
-                        <div class="vocab-card" style="border-left-color: #FF9800;">
-                            <div style="display:flex; justify-content:space-between;">
-                                <strong>{t['title']}</strong>
-                                <span class="ipa-text">{curso}</span>
-                            </div>
-                            <div style="font-size:0.9rem; color:#666; margin-top:4px;">
-                                {t['desc']}
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        if st.button(f"Select: {t['title']}", key=f"stg_{t['id']}"):
-                            selected_topic_text = f"Topic: {t['title']}\n\n"
-
-    if selected_topic_text:
-        st.session_state["user_text_input"] = selected_topic_text
-        st.rerun()
-
     if "user_text_input" not in st.session_state:
         st.session_state["user_text_input"] = ""
 
