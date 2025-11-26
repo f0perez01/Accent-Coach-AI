@@ -139,6 +139,33 @@ def register_user(email, password):
         return resp.json() if resp.status_code == 200 else {"error": resp.json().get("error", {}).get("message", "Error")}
     except Exception as e: return {"error": str(e)}
 
+# --- Send Email
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def send_email_gmail(to_email: str, subject: str, body: str):
+    """Send email using Gmail + App Password."""
+    gmail_user = st.secrets["GMAIL"]["EMAIL"]
+    gmail_password = st.secrets["GMAIL"]["APP_PASSWORD"]
+
+    msg = MIMEMultipart()
+    msg['From'] = gmail_user
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(gmail_user, gmail_password)
+            server.sendmail(gmail_user, to_email, msg.as_string())
+        return True
+    except Exception as e:
+        st.error(f"Email error: {e}")
+        return False
+
+
 # --- Firestore Logic ---
 def save_analysis_to_firestore(user_id, original_text, result):
     db = get_db()
@@ -255,6 +282,49 @@ def synthesize_tts(text: str):
         fp.seek(0)
         return fp.read()
     except: return None
+
+## --- Second LLM call
+def get_teacher_feedback(analysis: dict, original_text: str) -> str:
+    """
+    Second LLM call: rewrite feedback in English-teacher tone.
+    Returns a friendly email body.
+    """
+    api_key = st.secrets.get("GROQ_API_KEY")
+    if not api_key or not Groq:
+        return "Your feedback is ready, but the AI model is offline."
+
+    try:
+        client = Groq(api_key=api_key)
+
+        prompt = f"""
+        You are a friendly English teacher who helps ESL students.
+        Rewrite the following analysis as warm, constructive feedback.
+        Tone: kind, supportive, motivating.
+        Format: an email addressed directly to the student.
+
+        Student's original answer:
+        {original_text}
+
+        Analysis data:
+        {json.dumps(analysis, indent=2)}
+
+        Produce ONLY the email body. No JSON, no explanation, no greeting lines like "Here is your email".
+        """
+
+        chat = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You write clear, warm English teacher feedback."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.1-8b-instant",
+            temperature=0.4
+        )
+
+        return chat.choices[0].message.content.strip()
+
+    except Exception as e:
+        st.error(f"Feedback LLM error: {e}")
+        return "We couldn't generate feedback due to an AI issue."
 
 # ==========================================
 # 4. LÓGICA DE ESTADO Y GAMIFICATION
@@ -488,6 +558,29 @@ def main():
                 st.caption(f"Replace: {w.get('replaces_simple_word', '')} | Context: {w.get('meaning_context', '')}")
                 aud = synthesize_tts(w.get('word'))
                 if aud: st.audio(aud, format="audio/mp3")
+
+    # === BUTTON: TRIGGER SECOND LLM CALL ===
+    if "result" in st.session_state:
+        st.markdown("### 📧 Teacher Feedback Email")
+
+        if st.button("Send Teacher Feedback to My Email"):
+            with st.spinner("Generating teacher-style feedback..."):
+                email_body = get_teacher_feedback(
+                    analysis=st.session_state["result"],
+                    original_text=st.session_state["user_text_input"]
+                )
+
+            with st.spinner(f"Sending email to {user['email']}..."):
+                ok = send_email_gmail(
+                    to_email=user["email"],
+                    subject="Your English Feedback from Interview Coach",
+                    body=email_body
+                )
+
+            if ok:
+                st.success("Feedback sent! Check your inbox 📬")
+            else:
+                st.error("Could not send the email.")
 
 if __name__ == '__main__':
     main()
