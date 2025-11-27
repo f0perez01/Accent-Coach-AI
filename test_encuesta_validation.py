@@ -19,15 +19,17 @@ def test_try_int():
 def test_parse_adults_minors():
     print("\n🧪 Testing parse_adults_minors()...")
     
-    # Test cases
+    # Test cases (ahora incluyen los ejemplos de los placeholders)
     test_cases = [
-        ("2 adultos, 1 menor", (2, 1)),
+        ("2 adultos, 1 menor", (2, 1)),  # Del placeholder
         ("3 adultos 2 niños", (3, 2)),
-        ("adultos: 2 menores: 1", (2, 1)),
+        ("adultos: 2 menores: 1", (2, 1)),  # Del placeholder
         ("5", (5, 0)),  # solo un número, asume adultos
         ("2 menores", (0, 2)),
         ("todos adultos", (None, None)),
         ("", (None, None)),
+        ("1 adulto", (1, 0)),  # singular
+        ("2 adultos", (2, 0)),  # plural sin menores
     ]
     
     for text, expected in test_cases:

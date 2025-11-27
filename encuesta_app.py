@@ -179,15 +179,32 @@ def render_question(item: Dict[str, Any], index: int, state: Dict[str, Any]) -> 
     # Label con asterisco si es requerido
     label = f"{title}{' *' if required else ''}"
     key = f"q_{index}"
+    
+    # Definir placeholders contextuales
+    placeholder = ""
+    if "nombre" in title.lower():
+        placeholder = "Ej: Juan Pérez"
+    elif "personas" in title.lower() and "cuántas" in title.lower():
+        placeholder = "Ej: 3"
+    elif "adultos" in title.lower() and "menores" in title.lower():
+        placeholder = "Ej: 2 adultos, 1 menor  o  adultos: 2 menores: 1"
+    elif "cantidad" in title.lower() and "carne" in title.lower():
+        placeholder = "Ej: 2 kg de vacuno, 1 kg de pollo"
+    elif "bebidas" in title.lower() and "cuántas" in title.lower():
+        placeholder = "Ej: 6"
+    elif "hora" in title.lower() and "llegar" in title.lower():
+        placeholder = "Ej: 11:00 AM"
+    elif "cupos" in title.lower():
+        placeholder = "Ej: 3"
 
     # Text Question
     if "textQuestion" in question:
-        val = st.text_input(label, key=key)
+        val = st.text_input(label, key=key, placeholder=placeholder)
         return normalize_str(val)
 
     # Paragraph Question
     elif "paragraphQuestion" in question:
-        val = st.text_area(label, key=key, height=100)
+        val = st.text_area(label, key=key, height=100, placeholder=placeholder)
         return normalize_str(val)
 
     # Choice Question (Radio o Checkbox)
@@ -552,6 +569,14 @@ def main():
         items = survey.get("items", [])
         responses: Dict[str, Any] = {}
 
+        # Información útil para los usuarios
+        st.info("""
+        💡 **Consejos para llenar la encuesta:**
+        - Para **adultos y menores**, puedes escribir: "2 adultos, 1 menor" o "adultos: 2 menores: 1"
+        - Para **cantidad de carne**, indica tipo y peso: "2 kg de vacuno, 1 kg de pollo"
+        - Los campos marcados con **\*** son obligatorios
+        """)
+
         # We'll capture transport selection to show/hide cupos dynamically
         transport_selection = None
         cupos_value = None
@@ -581,8 +606,14 @@ def main():
             if transport_selection:
                 ts = str(transport_selection).lower()
                 if "llevar a otras personas" in ts:
-                    cupos_value = st.number_input("Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?",
-                                                  min_value=0, step=1, value=1, key="dynamic_cupos")
+                    cupos_value = st.number_input(
+                        "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?",
+                        min_value=0, 
+                        step=1, 
+                        value=1, 
+                        key="dynamic_cupos",
+                        help="Indica cuántas personas más podrías transportar en tu vehículo"
+                    )
                     responses["Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?"] = int(cupos_value)
                 else:
                     # if the survey had a pre-defined cupos answer (should not) ensure it's empty
