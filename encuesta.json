@@ -1,0 +1,215 @@
+{
+  "title": "Organización Familiar – Día en la Piscina",
+  "description": "Formulario para coordinar aportes, compras, transporte y asistencia para nuestro día en la piscina. Somos 17 personas en total 🏊‍♂️🔥.",
+  "items": [
+    {
+      "title": "Nombre y apellido",
+      "questionItem": {
+        "question": { "required": true, "textQuestion": {} }
+      }
+    },
+    {
+      "title": "¿Cuántas personas vienen contigo?",
+      "questionItem": {
+        "question": { "required": true, "textQuestion": {} }
+      }
+    },
+    {
+      "title": "Indica cuántos son ADULTOS y cuántos son MENORES en tu grupo (para calcular comida)",
+      "questionItem": {
+        "question": { "required": true, "textQuestion": {} }
+      }
+    },
+
+
+    {
+      "title": "¿Qué preferimos comer en el asado?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "choiceQuestion": {
+            "type": "CHECKBOX",
+            "options": [
+              { "value": "Vacuno" },
+              { "value": "Cerdo" },
+              { "value": "Pollo" },
+              { "value": "Longaniza" },
+              { "value": "Acompañamientos / ensaladas" },
+              { "value": "Solo comeré ensaladas / vegetariano" },
+              { "value": "Otra opción" }
+            ],
+            "shuffle": false
+          }
+        }
+      }
+    },
+
+    {
+      "title": "¿Cómo puedes cooperar para el almuerzo (asado)?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "choiceQuestion": {
+            "type": "CHECKBOX",
+            "options": [
+              { "value": "Pagar solamente la cuota" },
+              { "value": "Puedo comprar carne (vacuno, cerdo, etc.)" },
+              { "value": "Puedo comprar pollo" },
+              { "value": "Puedo comprar longanizas" },
+              { "value": "Puedo comprar carbón" },
+              { "value": "Puedo comprar hielo" },
+              { "value": "Puedo comprar pan / marraquetas" },
+              { "value": "Puedo comprar acompañamientos (ensaladas, pebre, etc.)" },
+              { "value": "Puedo comprar bebidas" },
+              { "value": "Puedo comprar postre" },
+              { "value": "Puedo encargarme de varias cosas si hace falta" },
+              { "value": "No puedo cooperar con compras, solo asistiré" }
+            ],
+            "shuffle": false
+          }
+        }
+      }
+    },
+
+    {
+      "title": "Si vas a comprar carne, pollo o longaniza, indica qué tipo y qué cantidad podrías aportar (si lo sabes).",
+      "questionItem": {
+        "question": { "required": false, "paragraphQuestion": {} }
+      }
+    },
+
+    {
+      "title": "Comentario adicional sobre tu aporte para el almuerzo",
+      "questionItem": {
+        "question": { "required": false, "paragraphQuestion": {} }
+      }
+    },
+
+
+    {
+      "title": "¿Qué bebidas prefieres llevar o aportar?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "choiceQuestion": {
+            "type": "CHECKBOX",
+            "options": [
+              { "value": "Agua" },
+              { "value": "Jugos" },
+              { "value": "Bebidas gaseosas" },
+              { "value": "Cervezas" },
+              { "value": "Hielo" },
+              { "value": "Prefiero no llevar bebidas" }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "title": "¿Cuántas bebidas (botellas o litros) podrías llevar?",
+      "questionItem": {
+        "question": { "required": false, "textQuestion": {} }
+      }
+    },
+
+
+    {
+      "title": "¿Qué prefieres aportar para la hora del té?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "choiceQuestion": {
+            "type": "CHECKBOX",
+            "options": [
+              { "value": "Galletas" },
+              { "value": "Queque / torta" },
+              { "value": "Pan" },
+              { "value": "Mermelada / mantequilla" },
+              { "value": "Té / café" },
+              { "value": "Leche" },
+              { "value": "Azúcar / endulzante" },
+              { "value": "No aportaré para la hora del té" }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "title": "Comentarios para la hora del té",
+      "questionItem": {
+        "question": { "required": false, "paragraphQuestion": {} }
+      }
+    },
+
+
+    {
+      "title": "¿A qué hora puedes llegar?",
+      "questionItem": {
+        "question": { "required": false, "textQuestion": {} }
+      }
+    },
+
+
+    {
+      "title": "¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?",
+      "questionItem": {
+        "question": { "required": false, "paragraphQuestion": {} }
+      }
+    },
+
+    {
+      "title": "¿Tienes alguna restricción alimentaria o preferencia?",
+      "questionItem": {
+        "question": { "required": false, "paragraphQuestion": {} }
+      }
+    },
+
+
+    {
+      "title": "¿Confirmas tu asistencia?",
+      "questionItem": {
+        "question": {
+          "required": true,
+          "choiceQuestion": {
+            "type": "RADIO",
+            "options": [
+              { "value": "Sí, confirmo" },
+              { "value": "Confirmo por mí y mi grupo" },
+              { "value": "Aún no estoy seguro" },
+              { "value": "No asistiré" }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "title": "¿Cuál es tu situación con respecto al transporte?",
+      "questionItem": {
+        "question": {
+          "required": true,
+          "choiceQuestion": {
+            "type": "RADIO",
+            "options": [
+              { "value": "Tengo auto y puedo llevar a otras personas" },
+              { "value": "Tengo auto, pero NO puedo llevar a otros (vivo lejos / voy directo)" },
+              { "value": "No tengo transporte y NECESITO que me lleven" },
+              { "value": "No tengo transporte, pero puedo llegar por mi cuenta (Uber / bus / caminando)" },
+              { "value": "Otra situación (indicar)" }
+            ],
+            "shuffle": false
+          }
+        }
+      }
+    },
+
+    {
+      "title": "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?",
+      "questionItem": {
+        "question": { "required": false, "textQuestion": {} }
+      }
+    }
+  ]
+}
