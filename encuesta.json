@@ -1,0 +1,177 @@
+{
+  "title": "Organización Familiar – Día en la Piscina",
+  "description": "Coordinemos las tareas y aportes para nuestro día en la piscina. Por favor completa tus preferencias y en qué puedes cooperar. Somos 15 personas 😊.",
+  "items": [
+    {
+      "title": "Nombre completo",
+      "questionItem": {
+        "question": {
+          "required": true,
+          "textQuestion": {}
+        }
+      }
+    },
+    {
+      "title": "¿Cuántas personas en total van contigo?",
+      "questionItem": {
+        "question": {
+          "required": true,
+          "textQuestion": {}
+        }
+      }
+    },
+    {
+      "title": "¿Qué opción prefieres para el almuerzo?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "choiceQuestion": {
+            "type": "RADIO",
+            "options": [
+              {"value": "Asado"},
+              {"value": "Pastas"},
+              {"value": "Comida fría (sandwiches, wraps, ensaladas)"},
+              {"value": "Cada familia lleva su almuerzo"},
+              {"value": "Otra (especificar)"}
+            ],
+            "shuffle": false
+          }
+        }
+      }
+    },
+    {
+      "title": "¿En qué te gustaría cooperar para el almuerzo?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "choiceQuestion": {
+            "type": "CHECKBOX",
+            "options": [
+              {"value": "Carnes"},
+              {"value": "Ensaladas"},
+              {"value": "Pan"},
+              {"value": "Arroz/Pastas"},
+              {"value": "Salsas"},
+              {"value": "Postre"},
+              {"value": "Implementos (platos, cubiertos, vasos, servilletas)"},
+              {"value": "Parrilla / Carbón / Gas"},
+              {"value": "Nada, solo asistiré"}
+            ],
+            "shuffle": false
+          }
+        }
+      }
+    },
+    {
+      "title": "Comentario adicional para el almuerzo",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "paragraphQuestion": {}
+        }
+      }
+    },
+    {
+      "title": "¿Qué bebidas prefieres llevar o aportar?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "choiceQuestion": {
+            "type": "CHECKBOX",
+            "options": [
+              {"value": "Agua"},
+              {"value": "Jugos"},
+              {"value": "Bebidas gaseosas"},
+              {"value": "Cervezas"},
+              {"value": "Hielo"},
+              {"value": "No llevaré bebidas"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "¿Cuántas bebidas podrías llevar?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "textQuestion": {}
+        }
+      }
+    },
+    {
+      "title": "¿Qué prefieres aportar para la hora del té?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "choiceQuestion": {
+            "type": "CHECKBOX",
+            "options": [
+              {"value": "Galletas"},
+              {"value": "Queque / torta"},
+              {"value": "Pan"},
+              {"value": "Mermelada / mantequilla"},
+              {"value": "Té / café"},
+              {"value": "Leche"},
+              {"value": "Azúcar / endulzante"},
+              {"value": "Nada en esta parte"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Comentarios para la hora del té",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "paragraphQuestion": {}
+        }
+      }
+    },
+    {
+      "title": "¿A qué hora puedes llegar?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "textQuestion": {}
+        }
+      }
+    },
+    {
+      "title": "¿Puedes llevar algo adicional? (sombrillas, juegos, parlante, etc.)",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "paragraphQuestion": {}
+        }
+      }
+    },
+    {
+      "title": "¿Tienes alguna restricción alimentaria o preferencia?",
+      "questionItem": {
+        "question": {
+          "required": false,
+          "paragraphQuestion": {}
+        }
+      }
+    },
+    {
+      "title": "¿Confirmas tu asistencia?",
+      "questionItem": {
+        "question": {
+          "required": true,
+          "choiceQuestion": {
+            "type": "RADIO",
+            "options": [
+              {"value": "Sí, confirmo"},
+              {"value": "Confirmo por mí y mi familia"},
+              {"value": "Aún no estoy seguro"},
+              {"value": "No asistiré"}
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
