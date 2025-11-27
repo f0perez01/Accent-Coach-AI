@@ -9,7 +9,7 @@ import os
 import io
 import re
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Tuple, Dict, Optional
 import json
 import base64
@@ -22,6 +22,8 @@ import torch
 import torchaudio
 import plotly.graph_objects as go
 import plotly.express as px
+import requests
+import extra_streamlit_components as stx
 
 from transformers import AutoProcessor, AutoModelForCTC
 from phonemizer.punctuation import Punctuation
@@ -33,6 +35,13 @@ try:
     _HAS_GROQ = True
 except Exception:
     _HAS_GROQ = False
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore, auth
+    _HAS_FIREBASE = True
+except ImportError:
+    _HAS_FIREBASE = False
 
 # ============================================================================
 # CONFIGURATION & CONSTANTS
@@ -104,6 +113,87 @@ IPA_DEFINITIONS = {
     "ˈ": "Acento principal (sílaba fuerte)",
     "ˌ": "Acento secundario"
 }
+
+# ============================================================================
+# FIREBASE AUTHENTICATION & DATABASE
+# ============================================================================
+
+def init_firebase():
+    """Initialize Firebase Admin SDK"""
+    if not _HAS_FIREBASE:
+        return
+    if not firebase_admin._apps:
+        try:
+            if "FIREBASE" in st.secrets:
+                cred_dict = dict(st.secrets["FIREBASE"])
+                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+        except Exception as e:
+            st.error(f"Firebase Init Error: {e}")
+
+def get_db():
+    """Get Firestore database client"""
+    return firestore.client() if _HAS_FIREBASE and firebase_admin._apps else None
+
+def login_user(email: str, password: str) -> dict:
+    """Login user with Firebase Authentication"""
+    api_key = st.secrets.get("FIREBASE_WEB_API_KEY")
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
+    try:
+        resp = requests.post(url, json={"email": email, "password": password, "returnSecureToken": True})
+        return resp.json() if resp.status_code == 200 else {"error": resp.json().get("error", {}).get("message", "Error")}
+    except Exception as e:
+        return {"error": str(e)}
+
+def register_user(email: str, password: str) -> dict:
+    """Register new user with Firebase Authentication"""
+    api_key = st.secrets.get("FIREBASE_WEB_API_KEY")
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={api_key}"
+    try:
+        resp = requests.post(url, json={"email": email, "password": password, "returnSecureToken": True})
+        return resp.json() if resp.status_code == 200 else {"error": resp.json().get("error", {}).get("message", "Error")}
+    except Exception as e:
+        return {"error": str(e)}
+
+def save_analysis_to_firestore(user_id: str, reference_text: str, result: dict):
+    """Save pronunciation analysis to Firestore"""
+    db = get_db()
+    if not db:
+        return
+
+    doc = {
+        "user_id": user_id,
+        "reference_text": reference_text,
+        "raw_decoded": result.get("raw_decoded", ""),
+        "metrics": result.get("metrics", {}),
+        "per_word_comparison": result.get("per_word_comparison", []),
+        "llm_feedback": result.get("llm_feedback", ""),
+        "timestamp": firestore.SERVER_TIMESTAMP
+    }
+    try:
+        db.collection("accent_coach_analyses").add(doc)
+        st.toast("Analysis saved to cloud! ☁️")
+    except Exception as e:
+        print(f"Firestore Error: {e}")
+
+def get_user_analyses(user_id: str) -> list:
+    """Get user's pronunciation analysis history from Firestore"""
+    db = get_db()
+    if not db:
+        return []
+    try:
+        docs = db.collection("english_analyses_cv").where("user_id", "==", user_id).stream()
+        data = [{"id": d.id, **d.to_dict()} for d in docs]
+        # Sort by timestamp descending
+        data.sort(
+            key=lambda x: x.get('timestamp', datetime.min) if isinstance(x.get('timestamp'), datetime) else datetime.min,
+            reverse=True
+        )
+        return data
+    except Exception as e:
+        print(f"Firestore Query Error: {e}")
+        return []
 
 # ============================================================================
 # AUDIO PROCESSING FUNCTIONS (from run_mdd.py)
@@ -949,10 +1039,14 @@ def render_ipa_guide_component(text: str, lang: str = "en-us"):
 
 def init_session_state():
     """Initialize session state variables"""
+    if 'user' not in st.session_state:
+        st.session_state.user = None
     if 'analysis_history' not in st.session_state:
         st.session_state.analysis_history = []
     if 'current_result' not in st.session_state:
         st.session_state.current_result = None
+    if 'current_doc_id' not in st.session_state:
+        st.session_state.current_doc_id = None
     if 'config' not in st.session_state:
         st.session_state.config = {
             'model_name': DEFAULT_MODEL,  # Use base model by default (cloud-friendly)
@@ -970,7 +1064,63 @@ def main():
         initial_sidebar_state="expanded"
     )
 
+    init_firebase()
     init_session_state()
+
+    # Cookie manager for persistent auth
+    cookie_manager = stx.CookieManager(key="auth_cookies_accent")
+
+    # --- AUTH FLOW ---
+    if not st.session_state.user:
+        # Try to restore session from cookie
+        token = cookie_manager.get(cookie="auth_token")
+        if token and _HAS_FIREBASE:
+            try:
+                decoded = auth.verify_id_token(token)
+                st.session_state.user = {
+                    "localId": decoded["uid"],
+                    "email": decoded.get("email", "")
+                }
+            except:
+                pass
+
+    # Show login/register if not authenticated
+    if not st.session_state.user:
+        st.title("🔐 Accent Coach AI - Login")
+        tab1, tab2 = st.tabs(["Login", "Register"])
+
+        with tab1:
+            with st.form("login_form"):
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                if st.form_submit_button("Login"):
+                    data = login_user(email, password)
+                    if "error" in data:
+                        st.error(data["error"])
+                    else:
+                        st.session_state.user = data
+                        cookie_manager.set("auth_token", data["idToken"], expires_at=datetime.now() + timedelta(days=7))
+                        st.success("Login successful!")
+                        st.rerun()
+
+        with tab2:
+            with st.form("register_form"):
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                password_confirm = st.text_input("Confirm Password", type="password")
+                if st.form_submit_button("Register"):
+                    if password != password_confirm:
+                        st.error("Passwords don't match!")
+                    else:
+                        data = register_user(email, password)
+                        if "error" in data:
+                            st.error(data["error"])
+                        else:
+                            st.success("Registration successful! Please login.")
+        return
+
+    # --- LOGGED IN VIEW ---
+    user = st.session_state.user
 
     # Title
     st.title("🎙️ Accent Coach AI")
@@ -978,21 +1128,74 @@ def main():
 
     # Sidebar
     with st.sidebar:
-        st.header("🎯 Practice Text Selection")
+        st.write(f"👤 **{user['email']}**")
+        st.divider()
 
-        # Category selection
-        category = st.selectbox("Category", list(PRACTICE_TEXTS.keys()))
+        # --- HISTORY LOADER ---
+        st.header("📜 History")
+        history = get_user_analyses(user['localId'])
 
-        # Text selection
-        text_option = st.selectbox("Select a phrase", PRACTICE_TEXTS[category])
+        # Create options for selectbox
+        history_options = {}
+        if history:
+            for h in history:
+                timestamp_str = h.get('timestamp').strftime('%d/%m %H:%M') if h.get('timestamp') else 'Unknown'
+                # Use 'original_text' which is the field in english_analyses_cv
+                text_preview = h.get('original_text', '')[:30] + "..." if len(h.get('original_text', '')) > 30 else h.get('original_text', '')
+                label = f"{timestamp_str} - {text_preview}"
+                history_options[label] = h
 
-        # Custom text option
-        use_custom = st.checkbox("Use custom text")
-        if use_custom:
-            custom_text = st.text_area("Enter your text:", value=text_option, height=100)
-            reference_text = custom_text
+        selected_history = st.selectbox(
+            "Select from history or start new",
+            ["📝 New Practice Session"] + list(history_options.keys())
+        )
+
+        # Initialize reference_text variable
+        reference_text = ""
+
+        # Load selected history or start new session
+        if selected_history != "📝 New Practice Session":
+            doc = history_options[selected_history]
+            # Load the text from 'original_text' field (from english_analyses_cv)
+            reference_text = doc.get('original_text', '')
+
+            # Reset current_doc_id since we're loading a writing practice text (no previous audio analysis)
+            if st.session_state.get("current_doc_id") != doc['id']:
+                st.session_state.current_doc_id = doc['id']
+                # Don't set previous_result since there's no audio analysis in this collection
+                st.session_state.pop("previous_result", None)
+                st.session_state.current_result = None
+                st.rerun()
+
+            st.info("📖 Practice pronunciation for this text from your writing history!")
+            st.caption(f"**Text:** {reference_text[:50]}{'...' if len(reference_text) > 50 else ''}")
         else:
-            reference_text = text_option
+            # New session - reset
+            if st.session_state.get("current_doc_id"):
+                st.session_state.current_doc_id = None
+                st.session_state.pop("previous_result", None)
+                st.session_state.current_result = None
+                st.rerun()
+
+        st.divider()
+
+        # --- PRACTICE TEXT SELECTION (Only for new sessions) ---
+        if selected_history == "📝 New Practice Session":
+            st.header("🎯 Practice Text Selection")
+
+            # Category selection
+            category = st.selectbox("Category", list(PRACTICE_TEXTS.keys()))
+
+            # Text selection
+            text_option = st.selectbox("Select a phrase", PRACTICE_TEXTS[category])
+
+            # Custom text option
+            use_custom = st.checkbox("Use custom text")
+            if use_custom:
+                custom_text = st.text_area("Enter your text:", value=text_option, height=100)
+                reference_text = custom_text
+            else:
+                reference_text = text_option
 
         st.divider()
 
@@ -1063,6 +1266,14 @@ def main():
         if st.button("🗑️ Clear Model Cache", help="Clear cached models to free up space"):
             st.cache_resource.clear()
             st.success("✓ Cache cleared! Page will reload.")
+            st.rerun()
+
+        st.divider()
+
+        # Logout button
+        if st.button("🚪 Logout", use_container_width=True):
+            st.session_state.user = None
+            cookie_manager.delete("auth_token")
             st.rerun()
 
     # Main panel
@@ -1163,11 +1374,19 @@ def main():
             if result:
                 st.session_state.current_result = result
                 st.session_state.analysis_history.append(result)
+
+                # Keep previous_result for comparison, but don't delete it
+                # It will be used to show progress
+
+                # Save to Firestore
+                save_analysis_to_firestore(user['localId'], reference_text, result)
+
                 st.success("Analysis complete!")
                 st.rerun()
 
     # Results display
     if st.session_state.current_result:
+        # Show current result
         st.divider()
         st.header("📊 Analysis Results")
 

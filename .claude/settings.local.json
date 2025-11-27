@@ -3,7 +3,13 @@
     "allow": [
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\pip.exe\" install extra-streamlit-components)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\pip.exe\" list)",
+      "Bash(findstr:*)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\pip.exe\" install:*)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\pip.exe\" install gTTS)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\pip.exe\" install -r requirements.txt)"
     ],
     "deny": [],
     "ask": []
