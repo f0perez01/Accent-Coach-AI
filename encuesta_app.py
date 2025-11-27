@@ -105,24 +105,38 @@ def parse_adults_minors(text: str):
         return None, None
 
     s = str(text).lower()
-    # buscar patrones tipo "2 adultos, 1 menor"
-    m = re.search(r"(\d+)\s*(adult[oa]s?)", s)
-    n = re.search(r"(\d+)\s*(menor[ea]s?|niñ[oa]s?)", s)
-    if m:
-        adults = int(m.group(1))
-        minors = int(n.group(1)) if n else 0
+    
+    # Estrategia: primero buscar el patrón "palabra: número" que es más específico
+    # luego buscar "número palabra" como fallback
+    
+    # Patrón 1: "adultos: 2" o "menores: 1" (palabra CON dos puntos antes del número)
+    adults_with_colon = re.findall(r"\b(?:adult[oa]s?)\s*:\s*(\d+)", s)
+    minors_with_colon = re.findall(r"\b(?:menor(?:es)?|niñ[oa]s?)\s*:\s*(\d+)", s)
+    
+    # Patrón 2: "2 adultos" o "1 menor" (número antes de la palabra)
+    adults_num_first = re.findall(r"(\d+)\s+(?:adult[oa]s?)\b", s) if not adults_with_colon else []
+    minors_num_first = re.findall(r"(\d+)\s+(?:menor(?:es)?|niñ[oa]s?)\b", s) if not minors_with_colon else []
+    
+    # Combinar resultados priorizando el patrón con dos puntos
+    adults_matches = adults_with_colon or adults_num_first
+    minors_matches = minors_with_colon or minors_num_first
+    
+    # Si encontramos palabras clave específicas, usarlas
+    if adults_matches or minors_matches:
+        adults = int(adults_matches[0]) if adults_matches else 0
+        minors = int(minors_matches[0]) if minors_matches else 0
         return adults, minors
 
-    # buscar "adultos: 2 menores: 1"
-    m_alt = re.findall(r"(\d+)", s)
-    if len(m_alt) >= 2:
-        return int(m_alt[0]), int(m_alt[1])
-    if len(m_alt) == 1:
+    # buscar "adultos: 2 menores: 1" o similar con dos números
+    all_nums = re.findall(r"(\d+)", s)
+    if len(all_nums) >= 2:
+        return int(all_nums[0]), int(all_nums[1])
+    if len(all_nums) == 1:
         # si el texto contiene la palabra 'menor' asumimos que ese número son menores
         if "menor" in s or "niño" in s or "niña" in s:
-            return 0, int(m_alt[0])
+            return 0, int(all_nums[0])
         # sino asumimos adultos
-        return int(m_alt[0]), 0
+        return int(all_nums[0]), 0
 
     # si encontro palabras que indiquen "todos adultos" o "solo adultos"
     if "adult" in s and ("solo" in s or "todos" in s):
@@ -183,7 +197,7 @@ def render_question(item: Dict[str, Any], index: int, state: Dict[str, Any]) -> 
         choice_type = choice_q.get("type", "RADIO")
 
         if choice_type == "RADIO":
-            val = st.radio(label, options, key=key, index=0 if not required else None)
+            val = st.radio(label, options, key=key, index=None)
             return normalize_str(val)
 
         elif choice_type == "CHECKBOX":
@@ -224,23 +238,30 @@ def compute_meat_suggestion(all_responses: List[Dict[str, Any]]):
         adults, minors = parse_adults_minors(am_text)
         # fallback a campo "¿Cuántas personas vienen contigo?"
         total_people_field = try_int(r.get("¿Cuántas personas vienen contigo?") or 0) or 0
-        fallback_total_people += total_people_field
-
-        if adults is None and minors is None:
-            # si no se parsea, asumimos que todos son adultos (salvo si el total <=2 and likely family with child? but keep simple)
-            total_adults += total_people_field
-        else:
+        
+        # Si tenemos datos de adultos/menores, usarlos
+        if adults is not None or minors is not None:
             total_adults += (adults or 0)
             total_minors += (minors or 0)
+        else:
+            # Si no hay datos específicos, asumir que el total son adultos
+            total_adults += total_people_field
+        
+        # Acumular fallback para validación
+        fallback_total_people += total_people_field
 
-    # Si no se detectaron menores, pero el fallback_total_people > total_adults assume 0 minors
     total_people = total_adults + total_minors
+    # Si no se detectó nada, usar el fallback completo
     if total_people == 0:
         total_people = fallback_total_people
+        total_adults = fallback_total_people
 
     suggested_kg = total_adults * adult_kg + total_minors * minor_kg
     # safety min: at least 0.5 kg per 2 persons
-    suggested_kg = max(suggested_kg, max(0.5, 0.25 * total_people))
+    if total_people > 0:
+        suggested_kg = max(suggested_kg, max(0.5, 0.25 * total_people))
+    else:
+        suggested_kg = 0
     return {
         "total_people_estimated": total_people,
         "total_adults": total_adults,
@@ -283,7 +304,7 @@ def show_summary_panel():
                 if isinstance(resp[k], str):
                     resp[k] = resp[k].strip()
                 # normalizar checkbox None -> []
-                if resp.get(k) is None and "¿Qué" in k or "¿Cómo" in k:
+                if resp.get(k) is None and ("¿Qué" in k or "¿Cómo" in k):
                     resp[k] = []
             # try to convert certain known numeric fields
             resp["__num_personas"] = try_int(resp.get("¿Cuántas personas vienen contigo?"))
@@ -294,7 +315,7 @@ def show_summary_panel():
         st.markdown("### 📈 Resumen General")
         col1, col2, col3, col4 = st.columns(4)
 
-        total_personas = sum([int(r.get("__num_personas") or 0) for r in all_responses])
+        total_personas = sum([r.get("__num_personas") or 0 for r in all_responses if isinstance(r.get("__num_personas"), int)])
         confirmados = sum([1 for r in all_responses if "Sí" in str(r.get("¿Confirmas tu asistencia?", "")) or "Confirmo" in str(r.get("¿Confirmas tu asistencia?", ""))])
 
         col1.metric("👥 Total personas (reportadas)", total_personas)
@@ -310,7 +331,7 @@ def show_summary_panel():
 
         necesitan_transporte = sum([1 for r in all_responses if "necesit" in lower_str(r.get("¿Cuál es tu situación con respecto al transporte?", ""))])
         ofrecen_cupos = [r for r in all_responses if "llevar a otras personas" in lower_str(r.get("¿Cuál es tu situación con respecto al transporte?", ""))]
-        total_cupos = sum([int(r.get("__cupos") or 0) for r in ofrecen_cupos])
+        total_cupos = sum([r.get("__cupos") or 0 for r in ofrecen_cupos if isinstance(r.get("__cupos"), int)])
 
         col4.metric("🚗 Cupos disponibles", f"{total_cupos}")
 
@@ -579,6 +600,10 @@ def main():
                 errors = []
                 for idx, item in enumerate(items):
                     title = item.get("title", "")
+                    # Skip cupos field - it's handled dynamically
+                    if title == "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?":
+                        continue
+                    
                     question_item = item.get("questionItem", {})
                     question = question_item.get("question", {})
                     required = question.get("required", False)
@@ -595,6 +620,19 @@ def main():
                 if errors:
                     st.error(f"Por favor completa los campos requeridos: {', '.join(errors)}")
                 else:
+                    # Validación de consistencia: adultos + menores vs total personas
+                    total_personas_field = responses.get("¿Cuántas personas vienen contigo?")
+                    adultos_menores_field = responses.get("Indica cuántos son ADULTOS y cuántos son MENORES en tu grupo (para calcular comida)")
+                    
+                    if total_personas_field and adultos_menores_field:
+                        total_num = try_int(total_personas_field)
+                        adults, minors = parse_adults_minors(adultos_menores_field)
+                        
+                        if isinstance(total_num, int) and adults is not None and minors is not None:
+                            suma_am = (adults or 0) + (minors or 0)
+                            if suma_am != total_num:
+                                st.warning(f"⚠️ Nota: El total de personas ({total_num}) no coincide con adultos + menores ({suma_am}). Verifica tus respuestas.")
+                    
                     # Post-process numeric conversions for key fields
                     # Convert some well-known fields to int when possible
                     numeric_fields = [
