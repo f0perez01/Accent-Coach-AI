@@ -33,6 +33,9 @@ from ipa_definitions import IPADefinitionsManager
 from audio_processor import AudioProcessor, TTSGenerator, AudioValidator
 from auth_manager import AuthManager
 from groq_manager import GroqManager
+from session_manager import SessionManager
+from metrics_calculator import MetricsCalculator
+from results_visualizer import ResultsVisualizer
 
 try:
     from groq import Groq
@@ -69,9 +72,20 @@ auth_manager = AuthManager(st.secrets if hasattr(st, 'secrets') else None)
 # Initialize Groq/LLM manager
 groq_manager = GroqManager()
 
+# NOTE: SessionManager will be instantiated in main() after functions are defined
+
 # ============================================================================
 # FIREBASE AUTHENTICATION & DATABASE
 # ============================================================================
+
+# NOTE: The following functions now delegate to manager classes:
+# - login_user() -> delegates to auth_manager
+# - register_user() -> delegates to auth_manager
+# - get_user_analyses() -> delegates to auth_manager
+# - save_analysis_to_firestore() -> delegates to auth_manager
+# - calculate_metrics() -> delegates to MetricsCalculator
+# - plot_waveform(), display_comparison_table(), plot_error_distribution(), render_ipa_guide_component()
+#   -> use ResultsVisualizer static methods
 
 def init_firebase():
     """Initialize Firebase Admin SDK (delegates to AuthManager)"""
@@ -211,58 +225,8 @@ def get_llm_feedback(reference_text: str, per_word_comparison: List[Dict],
 
 
 def calculate_metrics(per_word_comparison: List[Dict]) -> Dict:
-    """Calculate pronunciation accuracy metrics"""
-    total_words = len(per_word_comparison)
-    correct_words = sum(1 for item in per_word_comparison if item['match'])
-
-    # Calculate phoneme-level metrics
-    total_phonemes = 0
-    correct_phonemes = 0
-    substitutions = 0
-    insertions = 0
-    deletions = 0
-
-    for item in per_word_comparison:
-        ref = item['ref_phonemes']
-        rec = item['rec_phonemes']
-
-        # Simple character-level comparison
-        ref_chars = list(ref) if ref else []
-        rec_chars = list(rec) if rec else []
-
-        total_phonemes += len(ref_chars)
-
-        # Align at character level for detailed metrics
-        if ref == rec:
-            correct_phonemes += len(ref_chars)
-        else:
-            aligned_ref, aligned_rec = align_sequences(ref_chars, rec_chars)
-            for r, p in zip(aligned_ref, aligned_rec):
-                if r == p and r != "_":
-                    correct_phonemes += 1
-                elif r != "_" and p == "_":
-                    deletions += 1
-                elif r == "_" and p != "_":
-                    insertions += 1
-                elif r != p and r != "_" and p != "_":
-                    substitutions += 1
-
-    word_accuracy = (correct_words / total_words * 100) if total_words > 0 else 0
-    phoneme_accuracy = (correct_phonemes / total_phonemes * 100) if total_phonemes > 0 else 0
-    phoneme_error_rate = 100 - phoneme_accuracy
-
-    return {
-        'word_accuracy': word_accuracy,
-        'phoneme_accuracy': phoneme_accuracy,
-        'phoneme_error_rate': phoneme_error_rate,
-        'total_words': total_words,
-        'correct_words': correct_words,
-        'total_phonemes': total_phonemes,
-        'correct_phonemes': correct_phonemes,
-        'substitutions': substitutions,
-        'insertions': insertions,
-        'deletions': deletions,
-    }
+    """Calculate pronunciation accuracy metrics (delegates to MetricsCalculator)"""
+    return MetricsCalculator.calculate(per_word_comparison)
 
 
 # ============================================================================
@@ -270,84 +234,18 @@ def calculate_metrics(per_word_comparison: List[Dict]) -> Dict:
 # ============================================================================
 
 def plot_waveform(audio: np.ndarray, sr: int, title: str = "Audio Waveform"):
-    """Plot audio waveform using plotly"""
-    duration = len(audio) / sr
-    time = np.linspace(0, duration, len(audio))
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=time, y=audio, mode='lines', name='Amplitude'))
-    fig.update_layout(
-        title=title,
-        xaxis_title="Time (s)",
-        yaxis_title="Amplitude",
-        height=200,
-        margin=dict(l=0, r=0, t=30, b=0)
-    )
-    return fig
+    """Plot audio waveform using plotly (delegates to ResultsVisualizer)"""
+    return ResultsVisualizer.plot_waveform(audio, sr, title)
 
 
 def display_comparison_table(per_word_comparison: List[Dict], show_only_errors: bool = False):
-    """Display word-by-word comparison table"""
-    if show_only_errors:
-        data = [item for item in per_word_comparison if not item.get('match', False)]
-    else:
-        data = per_word_comparison
-
-    if not data:
-        st.info("No errors found! Perfect pronunciation!")
-        return
-
-    # Create DataFrame
-    df = pd.DataFrame(data)
-
-    # Ensure all required columns exist
-    if 'match' not in df.columns:
-        df['match'] = False
-    if 'word' not in df.columns:
-        df['word'] = ''
-    if 'ref_phonemes' not in df.columns:
-        df['ref_phonemes'] = ''
-    if 'rec_phonemes' not in df.columns:
-        df['rec_phonemes'] = ''
-
-    # Add Status column
-    df['Status'] = df['match'].apply(lambda x: '✓' if x else '✗')
-
-    # Prepare display dataframe
-    display_df = df[['word', 'ref_phonemes', 'rec_phonemes', 'Status']].copy()
-
-    # Color coding function
-    def highlight_errors(row):
-        # Get the original index to access the 'match' column
-        idx = row.name
-        is_match = df.loc[idx, 'match'] if idx in df.index else False
-
-        if not is_match:
-            return ['background-color: #ffebee'] * len(row)
-        else:
-            return ['background-color: #e8f5e9'] * len(row)
-
-    # Apply styling
-    styled_df = display_df.style.apply(highlight_errors, axis=1)
-
-    st.dataframe(styled_df, use_container_width=True, height=400)
+    """Display word-by-word comparison table (delegates to ResultsVisualizer)"""
+    return ResultsVisualizer.display_comparison_table(per_word_comparison, show_only_errors)
 
 
 def plot_error_distribution(metrics: Dict):
-    """Plot error type distribution"""
-    error_types = ['Substitutions', 'Insertions', 'Deletions']
-    error_counts = [metrics['substitutions'], metrics['insertions'], metrics['deletions']]
-
-    fig = px.bar(
-        x=error_types,
-        y=error_counts,
-        labels={'x': 'Error Type', 'y': 'Count'},
-        title='Phoneme Error Distribution',
-        color=error_types,
-        color_discrete_sequence=['#EF5350', '#FFA726', '#42A5F5']
-    )
-    fig.update_layout(showlegend=False, height=300)
-    return fig
+    """Plot error type distribution (delegates to ResultsVisualizer)"""
+    return ResultsVisualizer.plot_error_distribution(metrics)
 
 def render_ipa_guide_component(text: str, lang: str = "en-us"):
     """
@@ -501,56 +399,12 @@ def main():
     init_firebase()
     init_session_state()
 
-    # Cookie manager for persistent auth
-    cookie_manager = stx.CookieManager(key="auth_cookies_accent")
+    # Initialize SessionManager with callbacks
+    session_mgr = SessionManager(login_user, register_user, get_user_analyses)
 
     # --- AUTH FLOW ---
-    if not st.session_state.user:
-        # Try to restore session from cookie
-        token = cookie_manager.get(cookie="auth_token")
-        if token and _HAS_FIREBASE:
-            try:
-                decoded = auth.verify_id_token(token)
-                st.session_state.user = {
-                    "localId": decoded["uid"],
-                    "email": decoded.get("email", "")
-                }
-            except:
-                pass
-
-    # Show login/register if not authenticated
-    if not st.session_state.user:
-        st.title("🔐 Accent Coach AI - Login")
-        tab1, tab2 = st.tabs(["Login", "Register"])
-
-        with tab1:
-            with st.form("login_form"):
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                if st.form_submit_button("Login"):
-                    data = login_user(email, password)
-                    if "error" in data:
-                        st.error(data["error"])
-                    else:
-                        st.session_state.user = data
-                        cookie_manager.set("auth_token", data["idToken"], expires_at=datetime.now() + timedelta(days=7))
-                        st.success("Login successful!")
-                        st.rerun()
-
-        with tab2:
-            with st.form("register_form"):
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                password_confirm = st.text_input("Confirm Password", type="password")
-                if st.form_submit_button("Register"):
-                    if password != password_confirm:
-                        st.error("Passwords don't match!")
-                    else:
-                        data = register_user(email, password)
-                        if "error" in data:
-                            st.error(data["error"])
-                        else:
-                            st.success("Registration successful! Please login.")
+    should_return, _ = session_mgr.render_login_ui()
+    if should_return:
         return
 
     # --- LOGGED IN VIEW ---
@@ -565,51 +419,8 @@ def main():
         st.write(f"👤 **{user['email']}**")
         st.divider()
 
-        # --- HISTORY LOADER ---
-        st.header("📜 History")
-        history = get_user_analyses(user['localId'])
-
-        # Create options for selectbox
-        history_options = {}
-        if history:
-            for h in history:
-                timestamp_str = h.get('timestamp').strftime('%d/%m %H:%M') if h.get('timestamp') else 'Unknown'
-                # Use 'original_text' which is the field in english_analyses_cv
-                text_preview = h.get('original_text', '')[:30] + "..." if len(h.get('original_text', '')) > 30 else h.get('original_text', '')
-                label = f"{timestamp_str} - {text_preview}"
-                history_options[label] = h
-
-        selected_history = st.selectbox(
-            "Select from history or start new",
-            ["📝 New Practice Session"] + list(history_options.keys())
-        )
-
-        # Initialize reference_text variable
-        reference_text = ""
-
-        # Load selected history or start new session
-        if selected_history != "📝 New Practice Session":
-            doc = history_options[selected_history]
-            # Load the text from 'original_text' field (from english_analyses_cv)
-            reference_text = doc.get('original_text', '')
-
-            # Reset current_doc_id since we're loading a writing practice text (no previous audio analysis)
-            if st.session_state.get("current_doc_id") != doc['id']:
-                st.session_state.current_doc_id = doc['id']
-                # Don't set previous_result since there's no audio analysis in this collection
-                st.session_state.pop("previous_result", None)
-                st.session_state.current_result = None
-                st.rerun()
-
-            st.info("📖 Practice pronunciation for this text from your writing history!")
-            st.caption(f"**Text:** {reference_text[:50]}{'...' if len(reference_text) > 50 else ''}")
-        else:
-            # New session - reset
-            if st.session_state.get("current_doc_id"):
-                st.session_state.current_doc_id = None
-                st.session_state.pop("previous_result", None)
-                st.session_state.current_result = None
-                st.rerun()
+        # Use SessionManager to render history selector
+        reference_text, selected_history = session_mgr.render_user_info_and_history(user)
 
         st.divider()
 
@@ -692,12 +503,8 @@ def main():
                     except:
                         pass
                 except Exception as e:
-                    st.error("❌ Model download failed!")
-                    st.error(f"Error: {str(e)[:300]}")
-                    st.warning("💡 Try:")
-                    st.warning("1. Clear cache (button below)")
-                    st.warning("2. Use 'Wav2Vec2 Base' model")
-                    st.warning("3. Check your internet connection")
+                    st.error(f"❌ Model download failed! Error: {str(e)[:300]}")
+                    st.warning("💡 Try Clear cache (button below), Use 'Wav2Vec2 Base' model, Check your internet connection")
 
         # Clear cache button
         if st.button("🗑️ Clear Model Cache", help="Clear cached models to free up space"):
@@ -707,11 +514,8 @@ def main():
 
         st.divider()
 
-        # Logout button
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.user = None
-            cookie_manager.delete("auth_token")
-            st.rerun()
+        # Use SessionManager for logout
+        session_mgr.render_logout_button()
 
     # Main panel
     st.header("📝 Reference Text")
