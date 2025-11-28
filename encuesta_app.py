@@ -11,6 +11,8 @@ import streamlit as st
 import json
 import uuid
 import re
+import csv
+import io
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -71,6 +73,148 @@ def normalize_str(s: Any) -> Any:
     if isinstance(s, str):
         return s.strip()
     return s
+
+def remove_accents(text: str) -> str:
+    """Remueve acentos de un texto para comparaciones más robustas."""
+    replacements = {
+        'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u',
+        'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U',
+        'ñ': 'n', 'Ñ': 'N'
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+def normalize_confirmation(text: Any) -> str:
+    """Normaliza respuesta de confirmación de asistencia."""
+    if not text:
+        return "no_respondido"
+    s = str(text).lower().strip()
+    s = remove_accents(s)
+
+    if "si" in s or "confirm" in s:
+        return "confirmado"
+    elif "no estoy seguro" in s or "tal vez" in s or "quiza" in s:
+        return "incierto"
+    elif "no" in s:
+        return "no_asiste"
+    return "no_respondido"
+
+def safe_get_numeric(resp: Dict[str, Any], field_name: str, default: int = 0) -> int:
+    """Obtiene valor numérico de forma segura desde una respuesta."""
+    val = resp.get(field_name, default)
+    if isinstance(val, (int, float)):
+        return int(val)
+    if isinstance(val, str):
+        parsed = try_int(val)
+        return parsed if isinstance(parsed, int) else default
+    return default
+
+def get_field_value(resp: Dict[str, Any], *field_names) -> Any:
+    """Obtiene valor de un campo soportando múltiples nombres (compatibilidad)."""
+    for field_name in field_names:
+        if field_name in resp:
+            return resp[field_name]
+    return None
+
+def tiene_datos_relevantes(resp: Dict[str, Any]) -> bool:
+    """Verifica si la respuesta tiene datos relevantes para mostrar en expander."""
+    # Campos con AMBAS versiones (compatibilidad con datos antiguos y nuevos)
+    campos_importantes = [
+        # Versiones nuevas (datos reales de Firestore)
+        "¿En qué te gustaría cooperar para el almuerzo?",
+        "Comentario adicional para el almuerzo",
+        "¿Qué bebidas prefieres llevar o aportar?",
+        "¿Qué prefieres aportar para la hora del té?",
+        "¿Puedes llevar algo adicional? (sombrillas, juegos, parlante, etc.)",
+        "¿Tienes alguna restricción alimentaria o preferencia?",
+        # Versiones antiguas (compatibilidad)
+        "¿Cómo puedes cooperar para el almuerzo (asado)?",
+        "Si vas a comprar carne, pollo o longaniza, indica qué tipo y qué cantidad podrías aportar (si lo sabes).",
+        "Comentario adicional sobre tu aporte para el almuerzo",
+        "¿Cuál es tu situación con respecto al transporte?",
+        "¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?"
+    ]
+
+    for campo in campos_importantes:
+        val = resp.get(campo)
+        if val:
+            # Si es lista, verificar que no esté vacía
+            if isinstance(val, list) and len(val) > 0:
+                # Excluir listas con solo "Nada" o vacíos
+                if not (len(val) == 1 and any(x in str(val[0]).lower() for x in ["nada", ""])):
+                    return True
+            # Si es string, verificar que no esté vacío
+            elif isinstance(val, str) and val.strip():
+                return True
+    return False
+
+def export_to_csv(responses: List[Dict[str, Any]]) -> str:
+    """Exporta las respuestas a formato CSV."""
+    output = io.StringIO()
+
+    if not responses:
+        return ""
+
+    # Campos principales a exportar
+    fieldnames = [
+        "Nombre y apellido",
+        "Confirmación",
+        "Total personas",
+        "Adultos y menores",
+        "Preferencias comida",
+        "Cooperación almuerzo",
+        "Cantidad carne",
+        "Comentario adicional",
+        "Bebidas tipo",
+        "Bebidas cantidad",
+        "Hora del té",
+        "Transporte",
+        "Cupos disponibles",
+        "Hora llegada",
+        "Extras",
+        "Restricciones"
+    ]
+
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for resp in responses:
+        # Formatear listas como strings separados por comas
+        def format_field(val):
+            if isinstance(val, list):
+                return ", ".join([str(v) for v in val if v])
+            return str(val) if val else ""
+
+        confirmacion_text = {
+            "confirmado": "Confirmado",
+            "incierto": "No está seguro",
+            "no_asiste": "No asistirá",
+            "no_respondido": "Sin confirmar"
+        }
+
+        row = {
+            "Nombre y apellido": get_field_value(resp, "Nombre completo", "Nombre y apellido", "Nombre") or "Sin nombre",
+            "Confirmación": confirmacion_text.get(resp.get("__confirmacion_normalizada", "no_respondido"), "Sin confirmar"),
+            "Total personas": resp.get("__num_personas", ""),
+            "Adultos y menores": get_field_value(resp, "Indica cuántos son ADULTOS y cuántos son MENORES en tu grupo (para calcular comida)", "¿Cuántas personas en total van contigo?") or "",
+            "Preferencias comida": format_field(get_field_value(resp, "¿Qué opción prefieres para el almuerzo?", "¿Qué preferimos comer en el asado?")),
+            "Cooperación almuerzo": format_field(get_field_value(resp, "¿En qué te gustaría cooperar para el almuerzo?", "¿Cómo puedes cooperar para el almuerzo (asado)?")),
+            "Cantidad carne": get_field_value(resp, "Si vas a comprar carne, pollo o longaniza, indica qué tipo y qué cantidad podrías aportar (si lo sabes).") or "",
+            "Bebidas tipo": format_field(resp.get("¿Qué bebidas prefieres llevar o aportar?")),
+            "Bebidas cantidad": resp.get("__bebidas_qty", ""),
+            "Hora del té": format_field(resp.get("¿Qué prefieres aportar para la hora del té?")),
+            "Transporte": get_field_value(resp, "¿Cuál es tu situación con respecto al transporte?") or "",
+            "Cupos disponibles": resp.get("__cupos", ""),
+            "Hora llegada": resp.get("¿A qué hora puedes llegar?", ""),
+            "Extras": get_field_value(resp, "¿Puedes llevar algo adicional? (sombrillas, juegos, parlante, etc.)", "¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?") or "",
+            "Restricciones": resp.get("¿Tienes alguna restricción alimentaria o preferencia?", ""),
+            "Comentario adicional": get_field_value(resp, "Comentario adicional para el almuerzo", "Comentario adicional sobre tu aporte para el almuerzo") or ""
+        }
+
+        writer.writerow(row)
+
+    return output.getvalue()
 
 def try_int(v: Any):
     """Intenta convertir a entero, si no puede devuelve el original."""
@@ -313,6 +457,27 @@ def show_summary_panel():
             st.info("Aún no hay respuestas registradas. ¡Sé el primero!")
             return
 
+        # ===== FILTROS Y BÚSQUEDA =====
+        st.markdown("### 🔍 Filtros")
+        col_search, col_filter1, col_filter2 = st.columns([2, 1, 1])
+
+        with col_search:
+            search_term = st.text_input("🔎 Buscar por nombre", "", placeholder="Escribe un nombre...")
+
+        with col_filter1:
+            filter_confirmacion = st.selectbox(
+                "Filtrar por confirmación",
+                ["Todos", "Confirmados", "Inciertos", "No asisten", "Sin responder"]
+            )
+
+        with col_filter2:
+            filter_transporte = st.selectbox(
+                "Filtrar por transporte",
+                ["Todos", "Ofrecen cupos", "Necesitan transporte", "Tienen vehículo"]
+            )
+
+        st.markdown("---")
+
         # Normalizar y analizar respuestas
         # Convertir campos numéricos donde apliquen
         for resp in all_responses:
@@ -321,122 +486,279 @@ def show_summary_panel():
                 if isinstance(resp[k], str):
                     resp[k] = resp[k].strip()
                 # normalizar checkbox None -> []
-                if resp.get(k) is None and ("¿Qué" in k or "¿Cómo" in k):
-                    resp[k] = []
-            # try to convert certain known numeric fields
-            resp["__num_personas"] = try_int(resp.get("¿Cuántas personas vienen contigo?"))
-            resp["__cupos"] = try_int(resp.get("Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?"))
-            resp["__bebidas_qty"] = try_int(resp.get("¿Cuántas bebidas (botellas o litros) podrías llevar?"))
+                if resp.get(k) is None:
+                    # Detectar campos de checkbox de manera más robusta
+                    if any(keyword in k for keyword in ["¿Qué prefieres", "¿Cómo puedes", "¿Qué bebidas"]):
+                        resp[k] = []
 
-        # Métricas generales
+            # Campos numéricos con safe_get_numeric (soportar ambos nombres de campo)
+            num_personas_field = get_field_value(resp, "¿Cuántas personas en total van contigo?", "¿Cuántas personas vienen contigo?")
+            resp["__num_personas"] = safe_get_numeric({"value": num_personas_field}, "value", 0) if num_personas_field else 0
+
+            cupos_field = get_field_value(resp, "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?")
+            resp["__cupos"] = safe_get_numeric({"value": cupos_field}, "value", 0) if cupos_field else 0
+
+            bebidas_field = get_field_value(resp, "¿Cuántas bebidas podrías llevar?", "¿Cuántas bebidas (botellas o litros) podrías llevar?")
+            resp["__bebidas_qty"] = safe_get_numeric({"value": bebidas_field}, "value", 0) if bebidas_field else 0
+
+            # Normalizar confirmación
+            resp["__confirmacion_normalizada"] = normalize_confirmation(resp.get("¿Confirmas tu asistencia?"))
+
+            # Normalizar transporte
+            trans_text = str(resp.get("¿Cuál es tu situación con respecto al transporte?", "")).lower()
+            resp["__transporte_tipo"] = "ofrece_cupos" if "llevar a otras personas" in trans_text else \
+                                        "necesita" if "necesit" in trans_text else \
+                                        "tiene_vehiculo" if "tengo" in trans_text or "propio" in trans_text else "ninguno"
+
+        # ===== APLICAR FILTROS =====
+        filtered_responses = all_responses.copy()
+
+        # Filtro por búsqueda de nombre
+        if search_term:
+            search_normalized = remove_accents(search_term.lower())
+            filtered_responses = [
+                r for r in filtered_responses
+                if search_normalized in remove_accents(
+                    str(get_field_value(r, "Nombre completo", "Nombre y apellido", "Nombre") or "").lower()
+                )
+            ]
+
+        # Filtro por confirmación
+        if filter_confirmacion != "Todos":
+            filter_map = {
+                "Confirmados": "confirmado",
+                "Inciertos": "incierto",
+                "No asisten": "no_asiste",
+                "Sin responder": "no_respondido"
+            }
+            filtered_responses = [
+                r for r in filtered_responses
+                if r.get("__confirmacion_normalizada") == filter_map.get(filter_confirmacion)
+            ]
+
+        # Filtro por transporte
+        if filter_transporte != "Todos":
+            transport_map = {
+                "Ofrecen cupos": "ofrece_cupos",
+                "Necesitan transporte": "necesita",
+                "Tienen vehículo": "tiene_vehiculo"
+            }
+            filtered_responses = [
+                r for r in filtered_responses
+                if r.get("__transporte_tipo") == transport_map.get(filter_transporte)
+            ]
+
+        # Mostrar contador de resultados filtrados y botón de exportación
+        col_info, col_export = st.columns([3, 1])
+
+        with col_info:
+            if len(filtered_responses) < len(all_responses):
+                st.info(f"📋 Mostrando {len(filtered_responses)} de {len(all_responses)} respuestas")
+            else:
+                st.info(f"📋 Mostrando todas las {len(all_responses)} respuestas")
+
+        with col_export:
+            if all_responses:
+                csv_data = export_to_csv(all_responses)
+                st.download_button(
+                    label="📥 Exportar CSV",
+                    data=csv_data,
+                    file_name=f"encuesta_piscina_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    help="Descargar todas las respuestas en formato CSV"
+                )
+
+        # Métricas generales (basadas en TODAS las respuestas, no filtradas)
         st.markdown("### 📈 Resumen General")
         col1, col2, col3, col4 = st.columns(4)
 
-        total_personas = sum([r.get("__num_personas") or 0 for r in all_responses if isinstance(r.get("__num_personas"), int)])
-        confirmados = sum([1 for r in all_responses if "Sí" in str(r.get("¿Confirmas tu asistencia?", "")) or "Confirmo" in str(r.get("¿Confirmas tu asistencia?", ""))])
+        total_personas = sum([r.get("__num_personas", 0) for r in all_responses])
+        confirmados = sum([1 for r in all_responses if r.get("__confirmacion_normalizada") == "confirmado"])
+        inciertos = sum([1 for r in all_responses if r.get("__confirmacion_normalizada") == "incierto"])
 
-        col1.metric("👥 Total personas (reportadas)", total_personas)
+        col1.metric("👥 Total personas", total_personas)
         col2.metric("✅ Confirmados", confirmados)
-        col3.metric("📝 Respuestas recibidas", len(all_responses))
+        col3.metric("📝 Respuestas", len(all_responses))
 
-        # Resumen de transporte
-        def lower_str(x): 
-            try:
-                return str(x).lower()
-            except:
-                return ""
+        # Resumen de transporte mejorado
+        necesitan_transporte = sum([1 for r in all_responses if r.get("__transporte_tipo") == "necesita"])
+        ofrecen_cupos = [r for r in all_responses if r.get("__transporte_tipo") == "ofrece_cupos"]
+        total_cupos = sum([r.get("__cupos", 0) for r in ofrecen_cupos])
 
-        necesitan_transporte = sum([1 for r in all_responses if "necesit" in lower_str(r.get("¿Cuál es tu situación con respecto al transporte?", ""))])
-        ofrecen_cupos = [r for r in all_responses if "llevar a otras personas" in lower_str(r.get("¿Cuál es tu situación con respecto al transporte?", ""))]
-        total_cupos = sum([r.get("__cupos") or 0 for r in ofrecen_cupos if isinstance(r.get("__cupos"), int)])
+        # Calcular personas que necesitan transporte
+        personas_necesitan_transporte = sum([
+            r.get("__num_personas", 1) for r in all_responses
+            if r.get("__transporte_tipo") == "necesita"
+        ])
 
         col4.metric("🚗 Cupos disponibles", f"{total_cupos}")
 
+        # Alertas mejoradas
         if necesitan_transporte > 0:
-            st.warning(f"⚠️ {necesitan_transporte} persona(s) necesitan transporte")
+            balance = total_cupos - personas_necesitan_transporte
+            if balance < 0:
+                st.error(f"🚨 ALERTA: Faltan {abs(balance)} cupos de transporte ({personas_necesitan_transporte} personas necesitan, solo {total_cupos} cupos disponibles)")
+            elif balance == 0:
+                st.warning(f"⚠️ Transporte justo: {necesitan_transporte} persona(s) necesitan transporte, hay exactamente {total_cupos} cupos")
+            else:
+                st.success(f"✅ Transporte OK: {total_cupos} cupos disponibles para {personas_necesitan_transporte} personas que necesitan")
+
+        if inciertos > 0:
+            st.info(f"❓ {inciertos} persona(s) aún no han confirmado definitivamente")
+
+        # ===== PANEL DE INSIGHTS Y RECOMENDACIONES =====
+        st.markdown("---")
+        st.markdown("### 💡 Insights y Recomendaciones")
+
+        # Analizar restricciones alimentarias
+        restricciones_list = []
+        for resp in all_responses:
+            rest = resp.get("¿Tienes alguna restricción alimentaria o preferencia?")
+            if rest and str(rest).strip():
+                nombre = get_field_value(resp, "Nombre completo", "Nombre y apellido", "Nombre") or "Sin nombre"
+                restricciones_list.append((nombre, rest))
+
+        if restricciones_list:
+            with st.expander("⚠️ Restricciones Alimentarias - ¡IMPORTANTE!", expanded=True):
+                st.warning("**Recordar estas restricciones al preparar la comida:**")
+                for nombre, rest in restricciones_list:
+                    st.write(f"• **{nombre}**: {rest}")
+
+        # Analizar comentarios especiales
+        comentarios_especiales = []
+        for resp in all_responses:
+            com = get_field_value(resp, "Comentario adicional para el almuerzo", "Comentario adicional sobre tu aporte para el almuerzo")
+            if com and str(com).strip():
+                nombre = get_field_value(resp, "Nombre completo", "Nombre y apellido", "Nombre") or "Sin nombre"
+                comentarios_especiales.append((nombre, com))
+
+        if comentarios_especiales:
+            with st.expander("📝 Comentarios Especiales del Almuerzo", expanded=False):
+                for nombre, com in comentarios_especiales:
+                    st.info(f"**{nombre}**: {com}")
+
+        # Analizar extras que traerán
+        extras_items = []
+        for resp in all_responses:
+            extra = get_field_value(resp, "¿Puedes llevar algo adicional? (sombrillas, juegos, parlante, etc.)", "¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?")
+            if extra and str(extra).strip():
+                nombre = get_field_value(resp, "Nombre completo", "Nombre y apellido", "Nombre") or "Sin nombre"
+                extras_items.append((nombre, extra))
+
+        if extras_items:
+            with st.expander("🎉 Extras que traerán", expanded=False):
+                st.success("**Items adicionales confirmados:**")
+                for nombre, extra in extras_items:
+                    st.write(f"• **{nombre}**: {extra}")
 
         st.markdown("---")
 
-        # Resumen por persona
+        # Resumen por persona (usar filtered_responses)
         st.markdown("### 👥 Participantes")
-        for idx, resp in enumerate(all_responses, 1):
-            nombre = resp.get("Nombre y apellido", resp.get("Nombre", "Sin nombre"))
-            personas = resp.get("¿Cuántas personas vienen contigo?", "?")
-            adultos_menores = resp.get("Indica cuántos son ADULTOS y cuántos son MENORES en tu grupo (para calcular comida)", "")
-            asistencia = resp.get("¿Confirmas tu asistencia?", "Sin confirmar")
 
-            # Color según confirmación
-            asistencia_s = str(asistencia).lower()
-            emoji = "✅" if "sí" in asistencia_s or "confirm" in asistencia_s else "❓" if "seguro" in asistencia_s else "❌"
+        if not filtered_responses:
+            st.info("No hay participantes que coincidan con los filtros seleccionados.")
 
-            with st.expander(f"{emoji} {nombre} - {personas} personas ({adultos_menores})"):
-                st.markdown(f"**Asistencia:** {asistencia}")
+        for resp in filtered_responses:
+            nombre = get_field_value(resp, "Nombre completo", "Nombre y apellido", "Nombre") or "Sin nombre"
+            personas = resp.get("__num_personas", "?")
+            adultos_menores = get_field_value(resp, "Indica cuántos son ADULTOS y cuántos son MENORES en tu grupo (para calcular comida)", "¿Cuántas personas en total van contigo?") or "No especificado"
+
+            # Emoji según confirmación normalizada
+            confirmacion_norm = resp.get("__confirmacion_normalizada", "no_respondido")
+            emoji_map = {
+                "confirmado": "✅",
+                "incierto": "❓",
+                "no_asiste": "❌",
+                "no_respondido": "⚪"
+            }
+            emoji = emoji_map.get(confirmacion_norm, "⚪")
+
+            # Solo mostrar expander si tiene datos relevantes
+            if not tiene_datos_relevantes(resp):
+                st.markdown(f"{emoji} **{nombre}** - {personas} personas ({adultos_menores}) - _Sin detalles adicionales_")
+                continue
+
+            with st.expander(f"{emoji} {nombre} - {personas} personas ({adultos_menores})", expanded=False):
+                asistencia = resp.get("¿Confirmas tu asistencia?", "Sin confirmar")
+                confirmacion_text = {
+                    "confirmado": "✅ Confirmado",
+                    "incierto": "❓ No está seguro",
+                    "no_asiste": "❌ No asistirá",
+                    "no_respondido": "⚪ Sin confirmar"
+                }
+                st.markdown(f"**Asistencia:** {confirmacion_text.get(confirmacion_norm, asistencia)}")
 
                 # Preferencias de comida
-                comida_pref = resp.get("¿Qué preferimos comer en el asado?") or []
+                comida_pref = get_field_value(resp, "¿Qué opción prefieres para el almuerzo?", "¿Qué preferimos comer en el asado?") or []
                 if comida_pref:
                     items = comida_pref if isinstance(comida_pref, list) else [comida_pref]
-                    st.markdown(f"**🍖 Preferencia:** {', '.join(items)}")
+                    if items and items != ['']:
+                        st.markdown(f"**🍖 Preferencia:** {', '.join(items)}")
 
                 # Cooperación almuerzo
-                almuerzo_coop = resp.get("¿Cómo puedes cooperar para el almuerzo (asado)?") or []
+                almuerzo_coop = get_field_value(resp, "¿En qué te gustaría cooperar para el almuerzo?", "¿Cómo puedes cooperar para el almuerzo (asado)?") or []
                 if almuerzo_coop:
-                    st.markdown("**💰 Cooperación Almuerzo**")
                     items = almuerzo_coop if isinstance(almuerzo_coop, list) else [almuerzo_coop]
-                    for item in items:
-                        st.write(f"• {item}")
+                    # Filtrar "Nada, solo asistiré"
+                    items = [item for item in items if "nada" not in str(item).lower() or "asistiré" in str(item).lower()]
+                    if items and items != ['']:
+                        st.markdown("**💰 Cooperación Almuerzo**")
+                        for item in items:
+                            st.write(f"• {item}")
 
                 # Cantidad específica de carne
-                cantidad_carne = resp.get("Si vas a comprar carne, pollo o longaniza, indica qué tipo y qué cantidad podrías aportar (si lo sabes).")
-                if cantidad_carne:
+                cantidad_carne = get_field_value(resp, "Si vas a comprar carne, pollo o longaniza, indica qué tipo y qué cantidad podrías aportar (si lo sabes).")
+                if cantidad_carne and str(cantidad_carne).strip():
                     st.info(f"📦 {cantidad_carne}")
 
-                comentario_almuerzo = resp.get("Comentario adicional sobre tu aporte para el almuerzo")
-                if comentario_almuerzo:
+                comentario_almuerzo = get_field_value(resp, "Comentario adicional para el almuerzo", "Comentario adicional sobre tu aporte para el almuerzo")
+                if comentario_almuerzo and str(comentario_almuerzo).strip():
                     st.caption(f"💬 {comentario_almuerzo}")
 
                 # Bebidas
                 bebidas = resp.get("¿Qué bebidas prefieres llevar o aportar?") or []
-                cantidad_bebidas = resp.get("__bebidas_qty")
-                if bebidas or cantidad_bebidas:
+                cantidad_bebidas = resp.get("__bebidas_qty", 0)
+                bebidas_items = bebidas if isinstance(bebidas, list) else [bebidas] if bebidas else []
+                if (bebidas_items and bebidas_items != ['']) or cantidad_bebidas > 0:
                     st.markdown("**🥤 Bebidas**")
-                    if bebidas:
-                        items = bebidas if isinstance(bebidas, list) else [bebidas]
-                        st.write(f"• Tipo: {', '.join(items)}")
-                    if cantidad_bebidas:
-                        st.write(f"• Cantidad (estimada): {cantidad_bebidas}")
+                    if bebidas_items and bebidas_items != ['']:
+                        st.write(f"• Tipo: {', '.join(bebidas_items)}")
+                    if cantidad_bebidas > 0:
+                        st.write(f"• Cantidad: {cantidad_bebidas} unidad(es)")
 
                 # Hora del té
                 te = resp.get("¿Qué prefieres aportar para la hora del té?") or []
                 if te:
                     items = te if isinstance(te, list) else [te]
-                    st.markdown(f"**☕ Hora del té:** {', '.join(items)}")
+                    if items and items != ['']:
+                        st.markdown(f"**☕ Hora del té:** {', '.join(items)}")
 
                 comentario_te = resp.get("Comentarios para la hora del té")
-                if comentario_te:
+                if comentario_te and str(comentario_te).strip():
                     st.caption(f"💬 {comentario_te}")
 
                 # Transporte
                 transporte = resp.get("¿Cuál es tu situación con respecto al transporte?")
-                cupos = resp.get("__cupos")
-                if transporte:
+                cupos = resp.get("__cupos", 0)
+                if transporte and str(transporte).strip():
                     st.markdown(f"**🚗 Transporte:** {transporte}")
-                    if cupos:
+                    if cupos > 0:
                         st.write(f"   → Cupos disponibles: {cupos}")
 
                 # Horario
                 hora = resp.get("¿A qué hora puedes llegar?")
-                if hora:
+                if hora and str(hora).strip():
                     st.markdown(f"**🕐 Llegada:** {hora}")
 
                 # Extras
-                extras = resp.get("¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?")
-                if extras:
+                extras = get_field_value(resp, "¿Puedes llevar algo adicional? (sombrillas, juegos, parlante, etc.)", "¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?")
+                if extras and str(extras).strip():
                     st.markdown(f"**➕ Extras:** {extras}")
 
                 # Restricciones
                 restricciones = resp.get("¿Tienes alguna restricción alimentaria o preferencia?")
-                if restricciones:
+                if restricciones and str(restricciones).strip():
                     st.markdown(f"**⚠️ Restricciones:** {restricciones}")
 
         # Resumen consolidado
@@ -449,25 +771,34 @@ def show_summary_panel():
             st.markdown("**🍖 Preferencias de Comida**")
             comida_items = {}
             for resp in all_responses:
-                items = resp.get("¿Qué preferimos comer en el asado?") or []
-                item_list = items if isinstance(items, list) else [items]
+                items = get_field_value(resp, "¿Qué opción prefieres para el almuerzo?", "¿Qué preferimos comer en el asado?") or []
+                item_list = items if isinstance(items, list) else [items] if items else []
                 for item in item_list:
-                    comida_items[item] = comida_items.get(item, 0) + 1
+                    if item:  # Solo contar items no vacíos
+                        comida_items[item] = comida_items.get(item, 0) + 1
 
-            for item, count in sorted(comida_items.items(), key=lambda x: x[1], reverse=True):
-                st.write(f"• {item}: {count}")
+            if comida_items:
+                for item, count in sorted(comida_items.items(), key=lambda x: x[1], reverse=True):
+                    st.write(f"• {item}: {count}")
+            else:
+                st.info("Sin preferencias registradas")
 
             st.markdown("")
             st.markdown("**💰 Cooperación Almuerzo**")
             almuerzo_items = {}
             for resp in all_responses:
-                items = resp.get("¿Cómo puedes cooperar para el almuerzo (asado)?") or []
-                item_list = items if isinstance(items, list) else [items]
+                items = get_field_value(resp, "¿En qué te gustaría cooperar para el almuerzo?", "¿Cómo puedes cooperar para el almuerzo (asado)?") or []
+                item_list = items if isinstance(items, list) else [items] if items else []
                 for item in item_list:
-                    almuerzo_items[item] = almuerzo_items.get(item, 0) + 1
+                    # Filtrar "Nada, solo asistiré"
+                    if item and "nada" not in str(item).lower():
+                        almuerzo_items[item] = almuerzo_items.get(item, 0) + 1
 
-            for item, count in sorted(almuerzo_items.items(), key=lambda x: x[1], reverse=True):
-                st.write(f"• {item}: {count}")
+            if almuerzo_items:
+                for item, count in sorted(almuerzo_items.items(), key=lambda x: x[1], reverse=True):
+                    st.write(f"• {item}: {count}")
+            else:
+                st.info("Sin cooperación registrada")
 
         with col2:
             st.markdown("**🥤 Bebidas**")
@@ -493,29 +824,54 @@ def show_summary_panel():
             for item, count in sorted(te_items.items(), key=lambda x: x[1], reverse=True):
                 st.write(f"• {item}: {count}")
 
-        # Resumen de transporte detallado
+        # Resumen de transporte detallado y mejorado
         st.markdown("---")
         st.markdown("### 🚗 Coordinación de Transporte")
+
+        # Mostrar balance visual
+        if necesitan_transporte > 0 or len(ofrecen_cupos) > 0:
+            col_balance1, col_balance2, col_balance3 = st.columns(3)
+
+            with col_balance1:
+                st.metric("🚗 Ofrecen transporte", len(ofrecen_cupos), help="Personas que pueden llevar a otros")
+
+            with col_balance2:
+                st.metric("👥 Necesitan transporte", necesitan_transporte, help="Personas que necesitan que las lleven")
+
+            with col_balance3:
+                balance_cupos = total_cupos - personas_necesitan_transporte
+                st.metric("📊 Balance",
+                         f"{balance_cupos:+d} cupos",
+                         delta=None,
+                         help="Cupos disponibles menos personas que necesitan")
 
         col1, col2 = st.columns(2)
 
         with col1:
             st.markdown("**Ofrecen llevar personas:**")
-            for resp in all_responses:
-                trans = str(resp.get("¿Cuál es tu situación con respecto al transporte?", "")).lower()
-                if "llevar a otras personas" in trans:
-                    nombre = resp.get("Nombre y apellido", resp.get("Nombre", "Sin nombre"))
-                    cupos = resp.get("__cupos", "?")
-                    st.write(f"✅ {nombre}: {cupos} cupos")
+            if len(ofrecen_cupos) > 0:
+                for resp in all_responses:
+                    if resp.get("__transporte_tipo") == "ofrece_cupos":
+                        nombre = get_field_value(resp, "Nombre completo", "Nombre y apellido", "Nombre") or "Sin nombre"
+                        cupos = resp.get("__cupos", 0)
+                        hora = resp.get("¿A qué hora puedes llegar?", "")
+                        hora_text = f" - Llega: {hora}" if hora and str(hora).strip() else ""
+                        st.write(f"✅ **{nombre}**: {cupos} cupo(s){hora_text}")
+            else:
+                st.info("Nadie ha ofrecido cupos aún")
 
         with col2:
             st.markdown("**Necesitan transporte:**")
-            for resp in all_responses:
-                trans = str(resp.get("¿Cuál es tu situación con respecto al transporte?", "")).lower()
-                if "necesit" in trans:
-                    nombre = resp.get("Nombre y apellido", resp.get("Nombre", "Sin nombre"))
-                    personas = resp.get("¿Cuántas personas vienen contigo?", "?")
-                    st.write(f"❗ {nombre} ({personas} personas)")
+            if necesitan_transporte > 0:
+                for resp in all_responses:
+                    if resp.get("__transporte_tipo") == "necesita":
+                        nombre = get_field_value(resp, "Nombre completo", "Nombre y apellido", "Nombre") or "Sin nombre"
+                        personas = resp.get("__num_personas", 1)
+                        hora = resp.get("¿A qué hora puedes llegar?", "")
+                        hora_text = f" - Prefiere: {hora}" if hora and str(hora).strip() else ""
+                        st.write(f"❗ **{nombre}**: {personas} persona(s){hora_text}")
+            else:
+                st.success("Todos tienen transporte resuelto")
 
         # Cálculo sugerido de carne
         st.markdown("---")
