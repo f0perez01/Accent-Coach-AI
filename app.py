@@ -25,10 +25,10 @@ import plotly.express as px
 import requests
 import extra_streamlit_components as stx
 
-from transformers import AutoProcessor, AutoModelForCTC
 from phonemizer.punctuation import Punctuation
 from sequence_align.pairwise import needleman_wunsch
 from gtts import gTTS
+from asr_model import ASRModelManager
 
 try:
     from groq import Groq
@@ -86,6 +86,9 @@ MODEL_OPTIONS = {
 
 # Default model - use Base for cloud deployments (smaller, faster)
 DEFAULT_MODEL = "facebook/wav2vec2-base-960h"
+
+# Initialize ASR Model Manager (global instance)
+asr_manager = ASRModelManager(DEFAULT_MODEL, MODEL_OPTIONS)
 
 # Diccionario educativo de símbolos IPA (Inglés Americano General)
 IPA_DEFINITIONS = {
@@ -336,147 +339,8 @@ def align_per_word(lexicon: List[Tuple[str, str]], rec_tokens: List[str]):
 
 
 # ============================================================================
-# CACHED MODEL LOADING
-# ============================================================================
-
-@st.cache_resource
-def _load_model_internal(model_name: str, hf_token: Optional[str] = None):
-    """Internal function to load model (cacheable, no Streamlit UI elements)"""
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    kwargs = {}
-    
-    # Use only 'token' parameter (new standard in transformers 4.x+)
-    if hf_token:
-        kwargs["token"] = hf_token
-
-    # Load processor
-    processor = AutoProcessor.from_pretrained(
-        model_name,
-        **kwargs,
-        trust_remote_code=False,
-        local_files_only=False
-    )
-
-    # Load model
-    model = AutoModelForCTC.from_pretrained(
-        model_name,
-        **kwargs,
-        trust_remote_code=False,
-        local_files_only=False
-    ).to(device)
-
-    return processor, model, device
-
-
-def load_asr_model(model_name: str, hf_token: Optional[str] = None):
-    """Load and cache ASR model with fallback to smaller model if needed"""
-    # Try loading the requested model
-    try:
-        with st.spinner(f"📥 Downloading model: {model_name}...\nThis may take 30-60 seconds on first run."):
-            processor, model, device = _load_model_internal(model_name, hf_token)
-            st.toast(f"✅ Model ready: {model_name}", icon="✅")
-        return processor, model, device
-
-    except Exception as e:
-        error_msg = str(e)
-
-        # If loading fails and it's not already the base model, try fallback
-        if model_name != DEFAULT_MODEL:
-            st.warning(f"⚠️ Failed to load {model_name}")
-            st.warning(f"Error: {error_msg[:200]}")
-            st.info(f"🔄 Trying fallback model: {DEFAULT_MODEL}")
-
-            try:
-                with st.spinner(f"📥 Loading fallback model {DEFAULT_MODEL}..."):
-                    processor, model, device = _load_model_internal(DEFAULT_MODEL, hf_token)
-
-                st.success(f"✅ Successfully loaded fallback model: {DEFAULT_MODEL}")
-                st.info("💡 Consider selecting 'Wav2Vec2 Base' in Advanced Settings for faster loading")
-                return processor, model, device
-
-            except Exception as e2:
-                st.error(f"❌ Failed to load fallback model")
-                st.error(f"Fallback error: {str(e2)[:200]}")
-                st.error("😞 Unable to proceed. Please try:")
-                st.error("1. Clear cache (sidebar)")
-                st.error("2. Refresh the page")
-                st.error("3. Try again in a few minutes")
-                raise
-        else:
-            # Already trying base model and it failed
-            st.error(f"❌ Failed to load model {model_name}")
-            st.error(f"Error: {error_msg[:300]}")
-
-            # Provide specific guidance based on error type
-            if "disk" in error_msg.lower() or "space" in error_msg.lower():
-                st.error("🗄️ **Disk Space Issue**")
-                st.error("- On Streamlit Cloud free tier, space is limited")
-                st.error("- Click 'Clear Model Cache' in sidebar")
-                st.error("- Or upgrade to Streamlit Cloud Pro")
-            elif "connect" in error_msg.lower() or "timeout" in error_msg.lower():
-                st.error("🌐 **Network Issue**")
-                st.error("- Check your internet connection")
-                st.error("- Try refreshing the page")
-                st.error("- Hugging Face Hub might be down")
-            elif "not a valid model identifier" in error_msg.lower() or "not a local folder" in error_msg.lower():
-                st.error("🔌 **Hugging Face Connection Issue**")
-                st.error("Possible causes:")
-                st.error("1. **Network/Firewall blocking HuggingFace**")
-                st.error("   - Streamlit Cloud may have connectivity issues")
-                st.error("   - Try again in a few minutes")
-                st.error("2. **Outdated transformers library**")
-                st.error("   - Check requirements.txt has transformers>=4.30.0")
-                st.error("3. **Temporary HuggingFace outage**")
-                st.error("   - Check https://status.huggingface.co/")
-                st.info("💡 **Quick Fix**: Try deploying on a different platform (Railway, Render, or local)")
-            else:
-                st.error("❓ **Unknown Issue**")
-                st.error("- Try clearing cache (sidebar)")
-                st.error("- Refresh the page")
-                st.error("- Check https://status.huggingface.co/")
-                st.error("- Contact support if persists")
-
-            raise
-
-
-# ============================================================================
 # TRANSCRIPTION & ANALYSIS PIPELINE
 # ============================================================================
-
-def transcribe_audio(audio: np.ndarray, sr: int, processor, model, device,
-                     use_g2p: bool = True, lang: str = "en-us") -> Tuple[str, str]:
-    """Transcribe audio using ASR model"""
-    inputs = processor(audio, sampling_rate=sr, return_tensors="pt", padding=True)
-
-    with torch.no_grad():
-        logits = model(inputs["input_values"].to(device)).logits
-
-    ids = torch.argmax(logits, dim=-1)
-    decoded = processor.batch_decode(ids)[0]
-
-    recorded_phoneme_str = decoded
-
-    # Apply G2P if needed
-    if use_g2p:
-        try:
-            from gruut import sentences
-            is_mostly_ascii = bool(re.match(r"^[\x00-\x7f\s\w\.,'\"\-]+$", decoded))
-
-            if is_mostly_ascii:
-                ph_parts = []
-                for sent in sentences(decoded, lang=lang):
-                    for w in sent:
-                        try:
-                            ph_parts.append(" ".join(w.phonemes))
-                        except Exception:
-                            ph_parts.append(w.text)
-
-                recorded_phoneme_str = " ".join(ph_parts)
-        except Exception as e:
-            st.warning(f"G2P conversion failed: {e}")
-
-    return decoded, recorded_phoneme_str
-
 
 @st.cache_data
 def generate_reference_phonemes(text: str, lang: str = "en-us") -> Tuple[List[Tuple[str, str]], List[str]]:
@@ -596,66 +460,6 @@ def calculate_metrics(per_word_comparison: List[Dict]) -> Dict:
         'substitutions': substitutions,
         'insertions': insertions,
         'deletions': deletions,
-    }
-
-
-def process_audio_pipeline(audio_bytes: bytes, reference_text: str,
-                           processor, model, device, use_g2p: bool,
-                           use_llm: bool, groq_api_key: str, lang: str = "en-us") -> Dict:
-    """Complete analysis pipeline"""
-    # Load audio
-    audio, sr = load_audio_from_bytes(audio_bytes)
-    if audio is None:
-        return None
-
-    # Transcribe
-    with st.spinner("Transcribing audio..."):
-        raw_decoded, recorded_phoneme_str = transcribe_audio(
-            audio, sr, processor, model, device, use_g2p, lang
-        )
-
-    # Generate reference
-    with st.spinner("Generating reference phonemes..."):
-        lexicon, ref_words = generate_reference_phonemes(reference_text, lang)
-
-    # Align
-    with st.spinner("Aligning sequences..."):
-        rec_tokens = tokenize_phonemes(recorded_phoneme_str)
-        per_word_ref, per_word_rec = align_per_word(lexicon, rec_tokens)
-
-    # Build comparison
-    per_word_comparison = []
-    for i, word in enumerate(ref_words):
-        ref_ph = per_word_ref[i]
-        rec_ph = per_word_rec[i]
-        match = ref_ph == rec_ph
-        per_word_comparison.append({
-            'word': word,
-            'ref_phonemes': ref_ph,
-            'rec_phonemes': rec_ph,
-            'match': match
-        })
-
-    # Calculate metrics
-    metrics = calculate_metrics(per_word_comparison)
-
-    # Get LLM feedback
-    llm_feedback = None
-    if use_llm and groq_api_key:
-        with st.spinner("Getting AI coach feedback..."):
-            llm_feedback = get_llm_feedback(reference_text, per_word_comparison, groq_api_key)
-
-    return {
-        'timestamp': datetime.now(),
-        'audio_data': audio_bytes,
-        'audio_array': audio,
-        'sample_rate': sr,
-        'reference_text': reference_text,
-        'raw_decoded': raw_decoded,
-        'recorded_phoneme_str': recorded_phoneme_str,
-        'per_word_comparison': per_word_comparison,
-        'llm_feedback': llm_feedback,
-        'metrics': metrics,
     }
 
 
@@ -1238,22 +1042,16 @@ def main():
         if st.button("✅ Test Model Download", help="Verify that the model can be downloaded"):
             with st.spinner("Testing model download..."):
                 try:
-                    # Try to load the configured model
                     test_model = st.session_state.config['model_name']
-                    processor, model, device = load_asr_model(test_model, hf_token)
-
-                    # If successful, show success
+                    asr_manager.load_model(test_model, hf_token)
                     st.success(f"✅ Model loaded successfully!")
                     st.info(f"📦 Model: {test_model}")
-                    st.info(f"💻 Device: {device}")
-
-                    # Show model size info
+                    st.info(f"💻 Device: {asr_manager.device}")
                     try:
-                        param_count = sum(p.numel() for p in model.parameters())
+                        param_count = sum(p.numel() for p in asr_manager.model.parameters())
                         st.caption(f"Parameters: {param_count:,}")
                     except:
                         pass
-
                 except Exception as e:
                     st.error("❌ Model download failed!")
                     st.error(f"Error: {str(e)[:300]}")
@@ -1349,8 +1147,8 @@ def main():
     # Analysis button
     if audio_bytes:
         if st.button("🚀 Analyze Pronunciation", type="primary", use_container_width=True):
-            # Load model
-            processor, model, device = load_asr_model(
+            # Load model using ASRModelManager
+            asr_manager.load_model(
                 st.session_state.config['model_name'],
                 hf_token
             )
@@ -1358,31 +1156,54 @@ def main():
             # Convert audio_bytes to bytes if it's a file-like object
             audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, 'getvalue') else audio_bytes
 
-            # Process
-            result = process_audio_pipeline(
-                audio_data,
-                reference_text,
-                processor,
-                model,
-                device,
-                st.session_state.config['use_g2p'],
-                st.session_state.config['use_llm'],
-                groq_api_key,
-                st.session_state.config['lang']
+            # Transcribe using ASRModelManager
+            audio, sr = load_audio_from_bytes(audio_data)
+            if audio is None:
+                st.error("Audio loading failed.")
+                return
+            raw_decoded, recorded_phoneme_str = asr_manager.transcribe(
+                audio, sr,
+                use_g2p=st.session_state.config['use_g2p'],
+                lang=st.session_state.config['lang']
             )
 
-            if result:
-                st.session_state.current_result = result
-                st.session_state.analysis_history.append(result)
-
-                # Keep previous_result for comparison, but don't delete it
-                # It will be used to show progress
-
-                # Save to Firestore
-                save_analysis_to_firestore(user['localId'], reference_text, result)
-
-                st.success("Analysis complete!")
-                st.rerun()
+            # Generate reference
+            lexicon, ref_words = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
+            rec_tokens = tokenize_phonemes(recorded_phoneme_str)
+            per_word_ref, per_word_rec = align_per_word(lexicon, rec_tokens)
+            per_word_comparison = []
+            for i, word in enumerate(ref_words):
+                ref_ph = per_word_ref[i]
+                rec_ph = per_word_rec[i]
+                match = ref_ph == rec_ph
+                per_word_comparison.append({
+                    'word': word,
+                    'ref_phonemes': ref_ph,
+                    'rec_phonemes': rec_ph,
+                    'match': match
+                })
+            metrics = calculate_metrics(per_word_comparison)
+            llm_feedback = None
+            if st.session_state.config['use_llm'] and groq_api_key:
+                with st.spinner("Getting AI coach feedback..."):
+                    llm_feedback = get_llm_feedback(reference_text, per_word_comparison, groq_api_key)
+            result = {
+                'timestamp': datetime.now(),
+                'audio_data': audio_data,
+                'audio_array': audio,
+                'sample_rate': sr,
+                'reference_text': reference_text,
+                'raw_decoded': raw_decoded,
+                'recorded_phoneme_str': recorded_phoneme_str,
+                'per_word_comparison': per_word_comparison,
+                'llm_feedback': llm_feedback,
+                'metrics': metrics,
+            }
+            st.session_state.current_result = result
+            st.session_state.analysis_history.append(result)
+            save_analysis_to_firestore(user['localId'], reference_text, result)
+            st.success("Analysis complete!")
+            st.rerun()
 
     # Results display
     if st.session_state.current_result:
