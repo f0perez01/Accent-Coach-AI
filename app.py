@@ -14,6 +14,7 @@ from typing import List, Tuple, Dict, Optional
 import json
 import base64
 from st_pronunciation_widget import streamlit_pronunciation_widget
+from syllabifier import phonemes_to_syllables_with_fallback
 import streamlit.components.v1 as components
 
 import streamlit as st
@@ -115,18 +116,6 @@ def save_analysis_to_firestore(user_id: str, reference_text: str, result: dict):
 def get_user_analyses(user_id: str) -> list:
     """Get user's pronunciation analysis history from Firestore (delegates to AuthManager)"""
     return auth_manager.get_user_analyses(user_id)
-
-# ============================================================================
-# PHONEME PROCESSING FUNCTIONS
-# ============================================================================
-
-def tokenize_phonemes(s: str) -> List[str]:
-    """Tokenize phoneme string into individual tokens"""
-    s = s.strip()
-    if " " in s:
-        return s.split()
-    tok = re.findall(r"[a-zA-Zʰɪʌɒəɜɑɔɛʊʏœøɯɨɫɹːˈˌ˞̃͜͡d͡ʒ]+|[^\s]", s)
-    return [t for t in tok if t]
 
 
 def align_sequences(a: List[str], b: List[str]) -> Tuple[List[str], List[str]]:
@@ -541,8 +530,22 @@ def main():
     # 2. Render Karaoke Player
     if tts_audio:
         b64_audio = base64.b64encode(tts_audio).decode()
+        
+        # Generate syllables automatically from phoneme text
+        syllable_timings = None
+        try:
+            syllables = phonemes_to_syllables_with_fallback(phoneme_text)
+            if syllables:
+                syllable_timings = syllables
+        except Exception as e:
+            st.warning(f"Could not generate syllables: {e}")
 
-        streamlit_pronunciation_widget(reference_text, phoneme_text, b64_audio)
+        streamlit_pronunciation_widget(
+            reference_text, 
+            phoneme_text, 
+            b64_audio,
+            syllable_timings=syllable_timings
+        )
         
         # === AQUÍ AGREGAMOS LA NUEVA GUÍA ===
         st.markdown("---") # Separador sutil

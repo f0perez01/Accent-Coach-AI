@@ -15,11 +15,12 @@ def streamlit_pronunciation_widget(
     *,
     word_timings: Optional[List[dict]] = None,
     phoneme_timings: Optional[List[dict]] = None,
+    syllable_timings: Optional[List[dict]] = None,
     height: int = 300,
     title: Optional[str] = None
 ):
     """
-    Inserta en Streamlit un widget de pronunciación avanzado.
+    Inserta en Streamlit un widget de pronunciación avanzado con soporte para sílabas.
 
     Args:
       reference_text: texto normal (string).
@@ -27,12 +28,15 @@ def streamlit_pronunciation_widget(
       b64_audio: audio mp3 en Base64 (sin prefijo "data:..."), o con prefijo.
       word_timings: optional list of { "word": str, "start": float, "end": float }
       phoneme_timings: optional list of { "phoneme": str, "start": float, "end": float }
+      syllable_timings: optional list of { "syllable": str, "start": float, "end": float }
       height: altura del iframe html.
       title: título opcional que aparece arriba.
-    Behavior:
-      - Si no se proveen timings, el cliente calculará tiempos equidistantes cuando cargue el audio,
-        distribuyendo duración total entre palabras / fonemas.
-      - Si se proveen timings, serán usados tal cual (útil si tienes un aligner).
+    
+    Priority order:
+      1. word_timings (if provided)
+      2. syllable_timings (if provided, auto-generated or user-supplied)
+      3. phoneme_timings (if provided)
+      4. Fallback: compute equal partitions at client-side
     """
 
     # Normalize audio src (allow user to pass either raw base64 or data URI)
@@ -45,12 +49,19 @@ def streamlit_pronunciation_widget(
     # Keep HTML-escaped text to avoid injection
     words = [html.escape(w) for w in reference_text.strip().split()]
     phonemes = [html.escape(p) for p in phoneme_text.strip().split()]
+    
+    # Prepare syllables (escape and deduplicate from phoneme_text)
+    syllables = []
+    if syllable_timings:
+        syllables = [html.escape(s["syllable"]) for s in syllable_timings]
 
     payload = {
         "words": words,
         "phonemes": phonemes,
+        "syllables": syllables,
         "word_timings": word_timings or [],
         "phoneme_timings": phoneme_timings or [],
+        "syllable_timings": syllable_timings or [],
         "audio_src": src,
         "title": title or ""
     }
@@ -84,6 +95,17 @@ def streamlit_pronunciation_widget(
           color:#184e6c; background:transparent;
         }}
         .pp-phon {{ font-family: 'Courier New', monospace; color:#9b2c2c; font-size:15px; }}
+
+        .pp-syll {{ 
+          padding:8px 12px; border-radius:8px; font-size:16px; font-family: 'Courier New', monospace;
+          color:#1b4965; background:#e8f4f8; transition: background-color 120ms ease, color 120ms ease, transform 120ms ease;
+        }}
+
+        .pp-syll.active {{
+          background: linear-gradient(90deg, #66bb6a, #52c41a);
+          color:#fff; transform: scale(1.05);
+          box-shadow: 0 6px 14px rgba(82,196,26,0.2);
+        }}
 
         .pp-word.active {{
           background: linear-gradient(90deg,#ffd36b,#ffc16a);
@@ -123,8 +145,9 @@ def streamlit_pronunciation_widget(
           </div>
         </div>
 
-        <!-- Text and phonemes -->
+        <!-- Text, syllables, and phonemes -->
         <div id="pp-text-area" class="pp-text" aria-hidden="false"></div>
+        <div id="pp-syll-area" class="pp-syllables" aria-hidden="false" style="margin-top:6px; display:none;"></div>
         <div id="pp-phon-area" class="pp-phonemes" aria-hidden="false" style="margin-top:6px;"></div>
 
         <div class="pp-meta">Velocidad y resaltado sincronizados. Pausa congela la posición.</div>
@@ -159,6 +182,24 @@ def streamlit_pronunciation_widget(
               span.textContent = w;
               textArea.appendChild(span);
             }});
+            
+            // Render syllables if available
+            const syllArea = document.getElementById('pp-syll-area');
+            if (phonemes.length > 0 && payload.syllables && payload.syllables.length > 0) {{
+              syllArea.style.display = 'flex';
+              syllArea.innerHTML = '';
+              payload.syllables.forEach((s, i) => {{
+                const span = document.createElement('span');
+                span.className = 'pp-syll';
+                span.dataset.index = i;
+                span.dataset.syllable = s;
+                span.textContent = s;
+                syllArea.appendChild(span);
+              }});
+            }} else {{
+              syllArea.style.display = 'none';
+            }}
+            
             phonArea.innerHTML = '';
             phonemes.forEach((p, i) => {{
               const span = document.createElement('span');
@@ -173,20 +214,39 @@ def streamlit_pronunciation_widget(
           // When audio metadata loads, if no timings provided, compute equal partitions
           function computeTimingsIfMissing() {{
             const duration = audio.duration || 0.0;
+            
+            // Priority 1: word timings
             let wTimings = userWordTimings && userWordTimings.length ? userWordTimings : null;
+            
+            // Priority 2: syllable timings (generate equal partitions if not available)
+            let sTimings = userPhTimings && userPhTimings.length ? userPhTimings : null;
+            if (payload.syllable_timings && payload.syllable_timings.length) {{
+              sTimings = payload.syllable_timings;
+            }}
+            
+            // Priority 3: phoneme timings
             let pTimings = userPhTimings && userPhTimings.length ? userPhTimings : null;
 
+            // Fallback: compute equal partitions
             if (!wTimings) {{
               const n = Math.max(words.length, 1);
               const seg = duration / n;
               wTimings = words.map((w, i) => ({{ word: w, start: +(i * seg).toFixed(3), end: +(((i + 1) * seg)).toFixed(3) }}));
             }}
+            
+            if (!sTimings && payload.syllables && payload.syllables.length) {{
+              const n = Math.max(payload.syllables.length, 1);
+              const seg = duration / n;
+              sTimings = payload.syllables.map((s, i) => ({{ syllable: s, start: +(i * seg).toFixed(3), end: +(((i + 1) * seg)).toFixed(3) }}));
+            }}
+            
             if (!pTimings) {{
               const n = Math.max(phonemes.length, 1);
               const seg = duration / n;
               pTimings = phonemes.map((p, i) => ({{ phoneme: p, start: +(i * seg).toFixed(3), end: +(((i + 1) * seg)).toFixed(3) }}));
             }}
-            return {{ wTimings, pTimings }};
+            
+            return {{ wTimings, sTimings, pTimings }};
           }}
 
           // Keep active indices for fast lookup
@@ -214,15 +274,21 @@ def streamlit_pronunciation_widget(
             const t = audio.currentTime;
             // words
             const activeWords = findActiveIndices(t, timings.wTimings);
+            const activeSylls = timings.sTimings ? findActiveIndices(t, timings.sTimings) : [];
             const activePh = findActiveIndices(t, timings.pTimings);
 
             // clear previous
             document.querySelectorAll('.pp-word.active').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.pp-syll.active').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.pp-phon.active').forEach(el => el.classList.remove('active'));
 
             // set current
             activeWords.forEach(i => {{
               const el = textArea.querySelector('.pp-word[data-index=\"' + i + '\"]');
+              if (el) el.classList.add('active');
+            }});
+            activeSylls.forEach(i => {{
+              const el = document.getElementById('pp-syll-area').querySelector('.pp-syll[data-index=\"' + i + '\"]');
               if (el) el.classList.add('active');
             }});
             activePh.forEach(i => {{
@@ -271,6 +337,15 @@ def streamlit_pronunciation_widget(
                 el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]';
               }}
             }});
+            if (timings.sTimings) {{
+              timings.sTimings.forEach((it, i) => {{
+                const el = document.getElementById('pp-syll-area').querySelector('.pp-syll[data-index=\"' + i + '\"]');
+                if (el) {{
+                  el.dataset.start = it.start; el.dataset.end = it.end;
+                  el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]';
+                }}
+              }});
+            }}
             timings.pTimings.forEach((it, i) => {{
               const el = phonArea.querySelector('.pp-phon[data-index=\"' + i + '\"]');
               if (el) {{
