@@ -118,42 +118,63 @@ def streamlit_pronunciation_widget(
     # HTML + JS UI (fixed timing-priority and using syllables correctly)
     html_code = f"""
     <div id="st-pron-widget" style="font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; max-width:900px; margin: 6px auto;">
-      <style>
-        .pp-card {{ background: linear-gradient(180deg, #ffffff, #fbfdff); border: 1px solid #e6eef6; border-radius: 14px; padding: 18px; box-shadow: 0 6px 18px rgba(30,62,95,0.06); }}
+<style>
+        /* Card and layout */
+        .pp-card {{ background:#ffffff; border:1px solid #d0d7e3; border-radius:8px; padding:18px; box-shadow:0 2px 5px rgba(0,0,0,0.06); }}
         .pp-header {{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }}
-        .pp-title {{ font-weight:700; font-size:16px; color:#102a43; }}
+        .pp-title {{ font-weight:700; font-size:16px; color:#2b2b2b; font-family:"Calibri","Segoe UI",sans-serif; }}
         .pp-controls {{ display:flex; gap:8px; align-items:center; }}
-        .pp-select {{ padding:6px 10px; border-radius:8px; border:1px solid #d9e6f2; background:#f7fbff; font-size:14px; }}
-        .pp-text, .pp-phonemes {{ display:flex; flex-wrap:wrap; gap:6px; justify-content:center; padding:6px 4px; }}
-        .pp-word, .pp-phon {{ padding:6px 10px; border-radius:999px; font-size:16px; transition: background-color 120ms ease, color 120ms ease, transform 120ms ease; color:#184e6c; background:transparent; }}
-        .pp-phon {{ font-family: 'Courier New', monospace; color:#9b2c2c; font-size:15px; }}
-        .pp-syll {{ padding:8px 12px; border-radius:8px; font-size:16px; font-family: 'Courier New', monospace; color:#1b4965; background:#e8f4f8; transition: background-color 120ms ease, color 120ms ease, transform 120ms ease; }}
-        .pp-syll.active {{ background: linear-gradient(90deg, #66bb6a, #52c41a); color:#fff; transform: scale(1.05); box-shadow: 0 6px 14px rgba(82,196,26,0.2); }}
-        .pp-word.active {{ background: linear-gradient(90deg,#ffd36b,#ffc16a); color:#2b2b2b; transform: translateY(-3px); box-shadow: 0 6px 14px rgba(255,178,74,0.14); }}
-        .pp-phon.active {{ background: linear-gradient(90deg,#ffb3b3,#ff8f8f); color:#2b2b2b; transform: translateY(-2px); box-shadow: 0 6px 14px rgba(255,102,102,0.12); }}
-        .pp-button {{ padding:10px 18px; border-radius:12px; border:none; cursor:pointer; font-weight:600; font-size:15px; background:#1b6cff; color:white; box-shadow: 0 8px 20px rgba(27,108,255,0.12); }}
-        .pp-button.pause {{ background:#334155; }}
-        .pp-meta {{ margin-top:10px; font-size:12px; color:#627d98; text-align:center; }}
-      </style>
+        .pp-select {{ padding:6px 10px; border-radius:6px; border:1px solid #c8d0db; background:#f6f8fa; font-size:14px; font-family:"Calibri","Segoe UI",sans-serif; }}
+
+        /* Token rows - unify chip appearance by default using .pp-word */
+        .pp-text, .pp-phonemes, .pp-syllables {{ display:flex; flex-wrap:wrap; gap:6px; justify-content:center; padding:6px 4px; }}
+        .pp-word {{
+            padding:6px 12px;
+            border-radius:999px;
+            font-size:16px;
+            transition: background-color 120ms ease, color 120ms ease, transform 120ms ease;
+            color:#1f3b57;
+            background:#f2f4f7;
+            font-family:"Calibri","Segoe UI",sans-serif;
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+        }}
+
+        /* Phoneme / syllable inherit chip style but change monospace font */
+        .pp-phon {{ font-family:'Courier New', monospace; color:#8a1d1d; font-size:15px; }}
+        .pp-syll {{ font-family:'Courier New', monospace; color:#8a1d1d; font-size:15px; }}
+
+        /* Active variants */
+        .pp-syll.active {{ background:#ffd7d7; color:#2b2b2b; box-shadow:0 2px 5px rgba(180,50,50,0.12); transform:translateY(-2px); }}
+        .pp-word.active {{ background:#ffe7a6; color:#2b2b2b; box-shadow:0 2px 6px rgba(230,160,40,0.14); transform:translateY(-2px); }}
+        .pp-phon.active {{ background:#ffd7d7; color:#2b2b2b; box-shadow:0 2px 5px rgba(180,50,50,0.12); transform:translateY(-2px); }}
+
+        /* Buttons & meta */
+        .pp-button {{ padding:10px 18px; border-radius:8px; border:1px solid #1b6cff; cursor:pointer; font-weight:600; font-size:15px; background:#1b6cff; color:white; font-family:"Calibri","Segoe UI",sans-serif; box-shadow:0 3px 8px rgba(27,108,255,0.16); }}
+        .pp-button.pause {{ background:#4a5568; border-color:#4a5568; }}
+        .pp-meta {{ margin-top:10px; font-size:12px; color:#4b5c70; text-align:center; font-family:"Calibri","Segoe UI",sans-serif; }}
+</style>
+
 
       <div class="pp-card">
         <div class="pp-header">
           <div class="pp-title">Pronunciation Trainer {html.escape(payload['title'])}</div>
           <div class="pp-controls">
-            <select id="pp-speed" class="pp-select" onchange="ppChangeSpeed()">
+            <select id="pp-speed" class="pp-select" onchange="ppChangeSpeed()" title="Playback speed">
               <option value="0.5">0.5x</option>
               <option value="0.75">0.75x</option>
               <option value="1.0" selected>1.0x</option>
               <option value="1.25">1.25x</option>
               <option value="1.5">1.5x</option>
             </select>
-            <button id="pp-play" class="pp-button" onclick="ppTogglePlay()">▶ Play</button>
+            <button id="pp-play" class="pp-button" onclick="ppTogglePlay()" aria-pressed="false">▶ Play</button>
           </div>
         </div>
 
-        <div id="pp-text-area" class="pp-text" aria-hidden="false"></div>
-        <div id="pp-syll-area" class="pp-syllables" aria-hidden="false" style="margin-top:6px; display:none;"></div>
-        <div id="pp-phon-area" class="pp-phonemes" aria-hidden="false" style="margin-top:6px;"></div>
+        <div id="pp-text-area" class="pp-text" aria-hidden="false" role="group" aria-label="Words"></div>
+        <div id="pp-syll-area" class="pp-syllables" aria-hidden="true" style="margin-top:6px; display:none;" role="group" aria-label="Syllables"></div>
+        <div id="pp-phon-area" class="pp-phonemes" aria-hidden="false" style="margin-top:6px;" role="group" aria-label="Phonemes"></div>
 
         <div class="pp-meta">Velocidad y resaltado sincronizados. Pausa congela la posición.</div>
 
@@ -175,7 +196,7 @@ def streamlit_pronunciation_widget(
           const playBtn = document.getElementById('pp-play');
           const speedSelect = document.getElementById('pp-speed');
 
-          // Render spans
+          // Render spans: each token uses .pp-word to guarantee consistent chip visuals.
           function renderSpans() {{
             textArea.innerHTML = '';
             words.forEach((w, i) => {{
@@ -187,13 +208,14 @@ def streamlit_pronunciation_widget(
               textArea.appendChild(span);
             }});
 
-            // syllables
+            // syllables (use pp-word + pp-syll so they look like chips but with monospace)
             if (payload.syllables && payload.syllables.length) {{
               syllArea.style.display = 'flex';
+              syllArea.setAttribute('aria-hidden', 'false');
               syllArea.innerHTML = '';
               payload.syllables.forEach((s, i) => {{
                 const span = document.createElement('span');
-                span.className = 'pp-syll';
+                span.className = 'pp-word pp-syll';
                 span.dataset.index = i;
                 span.dataset.syllable = s;
                 span.textContent = s;
@@ -201,12 +223,13 @@ def streamlit_pronunciation_widget(
               }});
             }} else {{
               syllArea.style.display = 'none';
+              syllArea.setAttribute('aria-hidden', 'true');
             }}
 
             phonArea.innerHTML = '';
             phonemes.forEach((p, i) => {{
               const span = document.createElement('span');
-              span.className = 'pp-phon';
+              span.className = 'pp-word pp-phon';
               span.dataset.index = i;
               span.dataset.phoneme = p;
               span.textContent = p;
@@ -214,7 +237,7 @@ def streamlit_pronunciation_widget(
             }});
           }}
 
-          // Compute timings with correct priority
+          // Compute timings with correct priority (respecting provided timings)
           function computeTimingsIfMissing() {{
             const duration = audio.duration || 0.0;
 
@@ -227,7 +250,7 @@ def streamlit_pronunciation_widget(
             // Priority 3: phoneme timings
             let pTimings = (payload.phoneme_timings && payload.phoneme_timings.length) ? payload.phoneme_timings : null;
 
-            // Fallbacks
+            // Fallbacks: create uniform partitions when missing
             if (!wTimings) {{
               const n = Math.max(words.length, 1);
               const seg = duration / n;
@@ -235,7 +258,6 @@ def streamlit_pronunciation_widget(
             }}
 
             if (!sTimings && payload.syllables && payload.syllables.length) {{
-              // If there are syllable tokens but no timings, partition audio across syllables
               const n = Math.max(payload.syllables.length, 1);
               const seg = duration / n;
               sTimings = payload.syllables.map((s, i) => ({{ syllable: s, start: +(i * seg).toFixed(3), end: +(((i + 1) * seg)).toFixed(3) }}));
@@ -252,10 +274,14 @@ def streamlit_pronunciation_widget(
 
           function findActiveIndices(t, timings) {{
             const active = [];
+            if (!timings || !timings.length) return active;
             for (let i = 0; i < timings.length; i++) {{
               const it = timings[i];
-              if (it.start == null || it.end == null) continue;
-              if (t >= it.start && t < it.end) active.push(i);
+              if (it == null) continue;
+              const s = it.start, e = it.end;
+              if (s == null || e == null) continue;
+              // include end when t is very close to duration (to avoid missing final token)
+              if (t >= s && t < e) active.push(i);
             }}
             return active;
           }}
@@ -267,6 +293,7 @@ def streamlit_pronunciation_widget(
           let timings = null;
           let rafId = null;
 
+          // Single RAF loop for sync
           function syncFrame() {{
             const t = audio.currentTime;
             const activeWords = timings && timings.wTimings ? findActiveIndices(t, timings.wTimings) : [];
@@ -275,71 +302,113 @@ def streamlit_pronunciation_widget(
 
             clearActive();
 
+            // apply word highlights (highest priority)
             activeWords.forEach(i => {{
               const el = textArea.querySelector('.pp-word[data-index="' + i + '"]');
               if (el) el.classList.add('active');
             }});
+
+            // apply syllable highlights (second priority)
             activeSylls.forEach(i => {{
-              const el = syllArea.querySelector('.pp-syll[data-index="' + i + '"]');
+              const el = syllArea.querySelector('.pp-word.pp-syll[data-index="' + i + '"]');
               if (el) el.classList.add('active');
             }});
+
+            // apply phoneme highlights (third priority)
             activePh.forEach(i => {{
-              const el = phonArea.querySelector('.pp-phon[data-index="' + i + '"]');
+              const el = phonArea.querySelector('.pp-word.pp-phon[data-index="' + i + '"]');
               if (el) el.classList.add('active');
             }});
 
             rafId = window.requestAnimationFrame(syncFrame);
           }}
 
+          function startRAF() {{
+            if (rafId) window.cancelAnimationFrame(rafId);
+            rafId = window.requestAnimationFrame(syncFrame);
+          }}
+
+          function stopRAF() {{
+            if (rafId) {{
+              window.cancelAnimationFrame(rafId);
+              rafId = null;
+            }}
+          }}
+
           function togglePlay() {{
             if (audio.paused) {{
-              audio.play();
+              audio.play().catch(()=>{{}}); // ignore play promise rejections in restricted contexts
               playBtn.textContent = '⏸ Pause';
               playBtn.classList.add('pause');
-              if (rafId) window.cancelAnimationFrame(rafId);
-              rafId = window.requestAnimationFrame(syncFrame);
+              playBtn.setAttribute('aria-pressed', 'true');
+              startRAF();
             }} else {{
               audio.pause();
               playBtn.textContent = '▶ Resume';
               playBtn.classList.remove('pause');
-              if (rafId) window.cancelAnimationFrame(rafId);
+              playBtn.setAttribute('aria-pressed', 'false');
+              stopRAF();
             }}
           }}
 
           audio.onended = function() {{
             playBtn.textContent = '▶ Replay';
             playBtn.classList.remove('pause');
-            if (rafId) window.cancelAnimationFrame(rafId);
-            setTimeout(() => {{ audio.currentTime = 0; clearActive(); }}, 450);
+            playBtn.setAttribute('aria-pressed', 'false');
+            stopRAF();
+            setTimeout(() => {{ audio.currentTime = 0; clearActive(); }}, 200);
           }};
 
           audio.onloadedmetadata = function() {{
             timings = computeTimingsIfMissing();
 
-            // attach data attributes
-            timings.wTimings.forEach((it, i) => {{
-              const el = textArea.querySelector('.pp-word[data-index="' + i + '"]');
-              if (el) {{ el.dataset.start = it.start; el.dataset.end = it.end; el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]'; }}
-            }});
-            if (timings.sTimings) {{
-              timings.sTimings.forEach((it, i) => {{
-                const el = syllArea.querySelector('.pp-syll[data-index="' + i + '"]');
-                if (el) {{ el.dataset.start = it.start; el.dataset.end = it.end; el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]'; }}
+            // attach data attributes (and ignore items with null timings)
+            if (timings && timings.wTimings) {{
+              timings.wTimings.forEach((it, i) => {{
+                const el = textArea.querySelector('.pp-word[data-index="' + i + '"]');
+                if (el && it && it.start != null && it.end != null) {{
+                  el.dataset.start = it.start; el.dataset.end = it.end;
+                  el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]';
+                }}
               }});
             }}
-            timings.pTimings.forEach((it, i) => {{
-              const el = phonArea.querySelector('.pp-phon[data-index="' + i + '"]');
-              if (el) {{ el.dataset.start = it.start; el.dataset.end = it.end; el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]'; }}
-            }});
+            if (timings && timings.sTimings) {{
+              timings.sTimings.forEach((it, i) => {{
+                const el = syllArea.querySelector('.pp-word.pp-syll[data-index="' + i + '"]');
+                if (el && it && it.start != null && it.end != null) {{
+                  el.dataset.start = it.start; el.dataset.end = it.end;
+                  el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]';
+                }}
+              }});
+            }}
+            if (timings && timings.pTimings) {{
+              timings.pTimings.forEach((it, i) => {{
+                const el = phonArea.querySelector('.pp-word.pp-phon[data-index="' + i + '"]');
+                if (el && it && it.start != null && it.end != null) {{
+                  el.dataset.start = it.start; el.dataset.end = it.end;
+                  el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]';
+                }}
+              }});
+            }}
+
+            // enable controls if needed
+            playBtn.disabled = false;
+            speedSelect.disabled = false;
           }};
 
+          // hookup global functions for Streamlit calls
           window.ppChangeSpeed = function() {{ audio.playbackRate = parseFloat(speedSelect.value); }};
           window.ppTogglePlay = function() {{ togglePlay(); }};
 
+          // initial render
           renderSpans();
 
           // debug API
           window._pp_widget = {{ audio, getTimings: () => timings, words, phonemes }};
+
+          // defensive: hide play until metadata loaded (prevents weird behavior)
+          playBtn.disabled = true;
+          speedSelect.disabled = true;
         }})();
       </script>
     </div>
