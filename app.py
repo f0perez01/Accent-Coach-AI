@@ -32,6 +32,7 @@ from practice_texts import PracticeTextManager
 from ipa_definitions import IPADefinitionsManager
 from audio_processor import AudioProcessor, TTSGenerator, AudioValidator
 from auth_manager import AuthManager
+from groq_manager import GroqManager
 
 try:
     from groq import Groq
@@ -64,6 +65,9 @@ asr_manager = ASRModelManager(DEFAULT_MODEL, MODEL_OPTIONS)
 
 # Initialize Auth Manager (global instance)
 auth_manager = AuthManager(st.secrets if hasattr(st, 'secrets') else None)
+
+# Initialize Groq/LLM manager
+groq_manager = GroqManager()
 
 # ============================================================================
 # FIREBASE AUTHENTICATION & DATABASE
@@ -192,42 +196,15 @@ def generate_reference_phonemes(text: str, lang: str = "en-us") -> Tuple[List[Tu
 
 def get_llm_feedback(reference_text: str, per_word_comparison: List[Dict],
                      groq_api_key: str) -> Optional[str]:
-    """Get accent coaching feedback from Groq LLM"""
-    if not _HAS_GROQ or not groq_api_key:
-        return None
+    """Get accent coaching feedback via `groq_manager` wrapper.
 
+    This function keeps the original signature for backwards compatibility
+    but delegates the actual LLM work to `groq_manager`.
+    """
     try:
-        client = Groq(api_key=groq_api_key)
-
-        diff = "\n".join(
-            f"{item['word']}: expected={item['ref_phonemes']}, produced={item['rec_phonemes']}"
-            for item in per_word_comparison
-        )
-
-        system_message = """You are an expert dialect/accent coach for American spoken English.
-Provide feedback to improve the speaker's American accent.
-Use Google pronunciation respelling when giving corrections.
-Provide the following sections:
-- Overall Impression
-- Specific Feedback
-- Google Pronunciation Respelling Suggestions
-- Additional Tips"""
-
-        user_prompt = f"""Reference Text: {reference_text}
-
-(word, reference_phoneme, recorded_phoneme)
-{diff}"""
-
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_prompt},
-            ],
-            model="llama-3.1-8b-instant",
-            temperature=0
-        )
-
-        return chat_completion.choices[0].message.content
+        if groq_api_key:
+            groq_manager.set_api_key(groq_api_key)
+        return groq_manager.get_feedback(reference_text, per_word_comparison)
     except Exception as e:
         st.error(f"LLM feedback failed: {e}")
         return None
@@ -678,10 +655,19 @@ def main():
             groq_api_key = os.environ.get("GROQ_API_KEY")
             hf_token = os.environ.get("HF_API_TOKEN")
 
+        # Configure Groq manager with key if available
         if groq_api_key and _HAS_GROQ:
+            groq_manager.set_api_key(groq_api_key)
             st.success("✓ Groq API Connected")
         else:
             st.warning("⚠ Groq API Not Available")
+
+        # LLM controls
+        with st.expander("🧠 LLM / Groq Settings", expanded=False):
+            llm_model = st.selectbox("LLM Model", [groq_manager.model, "llama-3.1-8b-instant", "gpt-4o-mini"], index=0 if groq_manager.model else 1)
+            llm_temp = st.slider("Temperature", min_value=0.0, max_value=1.0, value=float(groq_manager.temperature or 0.0), step=0.05)
+            groq_manager.model = llm_model
+            groq_manager.temperature = float(llm_temp)
 
         device = "CUDA" if torch.cuda.is_available() else "CPU"
         st.info(f"Device: {device}")
