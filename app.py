@@ -36,6 +36,7 @@ from groq_manager import GroqManager
 from session_manager import SessionManager
 from metrics_calculator import MetricsCalculator
 from results_visualizer import ResultsVisualizer
+from analysis_pipeline import AnalysisPipeline
 
 try:
     from groq import Groq
@@ -402,6 +403,14 @@ def main():
     # Initialize SessionManager with callbacks
     session_mgr = SessionManager(login_user, register_user, get_user_analyses)
 
+    # Initialize AnalysisPipeline with manager dependencies
+    analysis_pipeline = AnalysisPipeline(
+        asr_manager=asr_manager,
+        groq_manager=groq_manager,
+        audio_processor=AudioProcessor,
+        ipa_defs_manager=IPADefinitionsManager
+    )
+
     # --- AUTH FLOW ---
     should_return, _ = session_mgr.render_login_ui()
     if should_return:
@@ -592,63 +601,33 @@ def main():
     # Analysis button
     if audio_bytes:
         if st.button("🚀 Analyze Pronunciation", type="primary", use_container_width=True):
-            # Load model using ASRModelManager
-            asr_manager.load_model(
-                st.session_state.config['model_name'],
-                hf_token
-            )
+            # Step 1: Load ASR model
+            try:
+                asr_manager.load_model(
+                    st.session_state.config['model_name'],
+                    hf_token
+                )
+            except Exception as e:
+                st.error(f"Failed to load ASR model: {e}")
+                st.stop()
 
             # Convert audio_bytes to bytes if it's a file-like object
             audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, 'getvalue') else audio_bytes
 
-            # Transcribe using ASRModelManager
-            audio, sr = AudioProcessor.load_from_bytes(audio_data)
-            if audio is None:
-                st.error("Audio loading failed.")
-                return
-            raw_decoded, recorded_phoneme_str = asr_manager.transcribe(
-                audio, sr,
+            # Step 2: Use AnalysisPipeline to orchestrate the entire workflow
+            result = analysis_pipeline.run(
+                audio_data,
+                reference_text,
                 use_g2p=st.session_state.config['use_g2p'],
+                use_llm=st.session_state.config['use_llm'],
                 lang=st.session_state.config['lang']
             )
 
-            # Generate reference
-            lexicon, ref_words = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
-            rec_tokens = tokenize_phonemes(recorded_phoneme_str)
-            per_word_ref, per_word_rec = align_per_word(lexicon, rec_tokens)
-            per_word_comparison = []
-            for i, word in enumerate(ref_words):
-                ref_ph = per_word_ref[i]
-                rec_ph = per_word_rec[i]
-                match = ref_ph == rec_ph
-                per_word_comparison.append({
-                    'word': word,
-                    'ref_phonemes': ref_ph,
-                    'rec_phonemes': rec_ph,
-                    'match': match
-                })
-            metrics = calculate_metrics(per_word_comparison)
-            llm_feedback = None
-            if st.session_state.config['use_llm'] and groq_api_key:
-                with st.spinner("Getting AI coach feedback..."):
-                    llm_feedback = get_llm_feedback(reference_text, per_word_comparison, groq_api_key)
-            result = {
-                'timestamp': datetime.now(),
-                'audio_data': audio_data,
-                'audio_array': audio,
-                'sample_rate': sr,
-                'reference_text': reference_text,
-                'raw_decoded': raw_decoded,
-                'recorded_phoneme_str': recorded_phoneme_str,
-                'per_word_comparison': per_word_comparison,
-                'llm_feedback': llm_feedback,
-                'metrics': metrics,
-            }
-            st.session_state.current_result = result
-            st.session_state.analysis_history.append(result)
-            save_analysis_to_firestore(user['localId'], reference_text, result)
-            st.success("Analysis complete!")
-            st.rerun()
+            if result:
+                st.session_state.current_result = result
+                st.session_state.analysis_history.append(result)
+                save_analysis_to_firestore(user['localId'], reference_text, result)
+                st.rerun()
 
     # Results display
     if st.session_state.current_result:

@@ -109,9 +109,9 @@ class SessionManager:
                     else 'Unknown'
                 )
                 text_preview = (
-                    h.get('original_text', '')[:30] + "..."
-                    if len(h.get('original_text', '')) > 30
-                    else h.get('original_text', '')
+                    h.get('corrected', '')[:30] + "..."
+                    if len(h.get('corrected', '')) > 30
+                    else h.get('corrected', '')
                 )
                 label = f"{timestamp_str} - {text_preview}"
                 history_options[label] = h
@@ -125,7 +125,7 @@ class SessionManager:
         reference_text = ""
         if selected_history != "📝 New Practice Session":
             doc = history_options[selected_history]
-            reference_text = doc.get('original_text', '')
+            reference_text = doc.get('corrected', '')
 
             # Reset current_doc_id since we're loading a writing practice text
             if st.session_state.get("current_doc_id") != doc['id']:
