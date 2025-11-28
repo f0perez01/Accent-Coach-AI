@@ -64,6 +64,32 @@ def load_survey():
         return None
 
 # -------------------------
+# FIELD MAPPINGS: Compatibilidad entre versiones de campos
+# -------------------------
+# Mapeo de nombres de campos antiguos -> nuevos (para normalización al guardar)
+FIELD_NORMALIZATION = {
+    "Nombre y apellido": "Nombre completo",
+    "¿Cuántas personas vienen contigo?": "¿Cuántas personas en total van contigo?",
+    "¿Cómo puedes cooperar para el almuerzo (asado)?": "¿En qué te gustaría cooperar para el almuerzo?",
+    "¿Qué preferimos comer en el asado?": "¿Qué opción prefieres para el almuerzo?",
+    "Comentario adicional sobre tu aporte para el almuerzo": "Comentario adicional para el almuerzo",
+    "¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?": "¿Puedes llevar algo adicional? (sombrillas, juegos, parlante, etc.)",
+    "¿Cuántas bebidas (botellas o litros) podrías llevar?": "¿Cuántas bebidas podrías llevar?"
+}
+
+# Mapeo de campos a todos sus posibles aliases (para búsqueda al cargar)
+FIELD_ALIASES = {
+    "Nombre y apellido": ["Nombre completo", "Nombre y apellido", "Nombre"],
+    "¿Cuántas personas vienen contigo?": ["¿Cuántas personas en total van contigo?", "¿Cuántas personas vienen contigo?"],
+    "¿Cómo puedes cooperar para el almuerzo (asado)?": ["¿En qué te gustaría cooperar para el almuerzo?", "¿Cómo puedes cooperar para el almuerzo (asado)?"],
+    "¿Qué preferimos comer en el asado?": ["¿Qué opción prefieres para el almuerzo?", "¿Qué preferimos comer en el asado?"],
+    "Comentario adicional sobre tu aporte para el almuerzo": ["Comentario adicional para el almuerzo", "Comentario adicional sobre tu aporte para el almuerzo"],
+    "¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?": ["¿Puedes llevar algo adicional? (sombrillas, juegos, parlante, etc.)", "¿Puedes llevar algo adicional (sombrillas, juegos, parlante, etc.)?"],
+    "¿Cuántas bebidas (botellas o litros) podrías llevar?": ["¿Cuántas bebidas podrías llevar?", "¿Cuántas bebidas (botellas o litros) podrías llevar?"],
+    "Indica cuántos son ADULTOS y cuántos son MENORES en tu grupo (para calcular comida)": ["Indica cuántos son ADULTOS y cuántos son MENORES en tu grupo (para calcular comida)", "¿Cuántas personas en total van contigo?"]
+}
+
+# -------------------------
 # UTILITIES: Normalización y parseo
 # -------------------------
 def normalize_str(s: Any) -> Any:
@@ -100,15 +126,6 @@ def normalize_confirmation(text: Any) -> str:
         return "no_asiste"
     return "no_respondido"
 
-def safe_get_numeric(resp: Dict[str, Any], field_name: str, default: int = 0) -> int:
-    """Obtiene valor numérico de forma segura desde una respuesta."""
-    val = resp.get(field_name, default)
-    if isinstance(val, (int, float)):
-        return int(val)
-    if isinstance(val, str):
-        parsed = try_int(val)
-        return parsed if isinstance(parsed, int) else default
-    return default
 
 def get_field_value(resp: Dict[str, Any], *field_names) -> Any:
     """Obtiene valor de un campo soportando múltiples nombres (compatibilidad)."""
@@ -289,22 +306,82 @@ def parse_adults_minors(text: str):
     return None, None
 
 # -------------------------
-# SAVE TO FIRESTORE
+# FIRESTORE OPERATIONS
 # -------------------------
-def save_response(responses: Dict[str, Any]):
+def get_all_participant_names():
+    """Obtiene lista de nombres de todos los participantes."""
+    db = get_db()
+    if not db:
+        return []
+
+    try:
+        docs = db.collection("encuesta_piscina").stream()
+        names = []
+        for doc in docs:
+            data = doc.to_dict()
+            responses = data.get("responses", {})
+            nombre = get_field_value(responses, "Nombre completo", "Nombre y apellido", "Nombre")
+            if nombre:
+                names.append({
+                    "nombre": nombre,
+                    "doc_id": doc.id,
+                    "timestamp": data.get("timestamp")
+                })
+        # Ordenar por nombre
+        names.sort(key=lambda x: x["nombre"].lower())
+        return names
+    except Exception as e:
+        st.error(f"Error obteniendo nombres: {e}")
+        return []
+
+def load_response_by_name(nombre: str):
+    """Carga la respuesta más reciente de un participante por nombre."""
+    db = get_db()
+    if not db:
+        return None, None
+
+    try:
+        docs = db.collection("encuesta_piscina").order_by("timestamp", direction=firestore.Query.DESCENDING).stream()
+
+        for doc in docs:
+            data = doc.to_dict()
+            responses = data.get("responses", {})
+            resp_nombre = get_field_value(responses, "Nombre completo", "Nombre y apellido", "Nombre")
+
+            if resp_nombre and resp_nombre.strip().lower() == nombre.strip().lower():
+                return doc.id, responses
+
+        return None, None
+    except Exception as e:
+        st.error(f"Error cargando respuesta: {e}")
+        return None, None
+
+def save_response(responses: Dict[str, Any], doc_id: str = None):
+    """Guarda o actualiza una respuesta en Firestore."""
     db = get_db()
     if not db:
         st.warning("Firestore no está configurado. Respuestas no se guardarán en la nube.")
         return False
 
     try:
-        doc_ref = db.collection("encuesta_piscina").document()
-        doc_ref.set({
-            "response_id": str(uuid.uuid4()),
-            "timestamp": firestore.SERVER_TIMESTAMP,
-            "submitted_at": datetime.utcnow().isoformat(),
-            "responses": responses
-        })
+        if doc_id:
+            # Actualizar documento existente
+            doc_ref = db.collection("encuesta_piscina").document(doc_id)
+            doc_ref.update({
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "submitted_at": datetime.utcnow().isoformat(),
+                "responses": responses,
+                "updated": True
+            })
+        else:
+            # Crear nuevo documento
+            doc_ref = db.collection("encuesta_piscina").document()
+            doc_ref.set({
+                "response_id": str(uuid.uuid4()),
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "submitted_at": datetime.utcnow().isoformat(),
+                "responses": responses
+            })
         return True
     except Exception as e:
         st.error(f"Error guardando en Firestore: {e}")
@@ -313,8 +390,8 @@ def save_response(responses: Dict[str, Any]):
 # -------------------------
 # RENDER QUESTION
 # -------------------------
-def render_question(item: Dict[str, Any], index: int, state: Dict[str, Any]) -> Any:
-    """Renderiza una pregunta según su tipo y retorna la respuesta(normalizada)."""
+def render_question(item: Dict[str, Any], index: int, default_value: Any = None) -> Any:
+    """Renderiza una pregunta según su tipo y retorna la respuesta normalizada."""
     title = item.get("title", "")
     question_item = item.get("questionItem", {})
     question = question_item.get("question", {})
@@ -343,12 +420,12 @@ def render_question(item: Dict[str, Any], index: int, state: Dict[str, Any]) -> 
 
     # Text Question
     if "textQuestion" in question:
-        val = st.text_input(label, key=key, placeholder=placeholder)
+        val = st.text_input(label, value=default_value if default_value else "", key=key, placeholder=placeholder)
         return normalize_str(val)
 
     # Paragraph Question
     elif "paragraphQuestion" in question:
-        val = st.text_area(label, key=key, height=100, placeholder=placeholder)
+        val = st.text_area(label, value=default_value if default_value else "", key=key, height=100, placeholder=placeholder)
         return normalize_str(val)
 
     # Choice Question (Radio o Checkbox)
@@ -358,16 +435,25 @@ def render_question(item: Dict[str, Any], index: int, state: Dict[str, Any]) -> 
         choice_type = choice_q.get("type", "RADIO")
 
         if choice_type == "RADIO":
-            val = st.radio(label, options, key=key, index=None)
+            # Encontrar índice del valor por defecto
+            default_index = None
+            if default_value:
+                try:
+                    default_index = options.index(default_value)
+                except ValueError:
+                    default_index = None
+            val = st.radio(label, options, key=key, index=default_index)
             return normalize_str(val)
 
         elif choice_type == "CHECKBOX":
             st.markdown(f"**{label}**")
             selected = []
+            # Convertir default_value a lista si existe
+            default_list = default_value if isinstance(default_value, list) else []
             # use stable keys (no special chars)
             for opt in options:
                 safe_opt = re.sub(r"\W+", "_", opt)
-                checked = st.checkbox(opt, key=f"{key}_{safe_opt}")
+                checked = st.checkbox(opt, value=(opt in default_list), key=f"{key}_{safe_opt}")
                 if checked:
                     selected.append(opt)
             # en vez de None devolver lista vacía si nada seleccionado
@@ -491,15 +577,18 @@ def show_summary_panel():
                     if any(keyword in k for keyword in ["¿Qué prefieres", "¿Cómo puedes", "¿Qué bebidas"]):
                         resp[k] = []
 
-            # Campos numéricos con safe_get_numeric (soportar ambos nombres de campo)
+            # Campos numéricos (soportar ambos nombres de campo)
             num_personas_field = get_field_value(resp, "¿Cuántas personas en total van contigo?", "¿Cuántas personas vienen contigo?")
-            resp["__num_personas"] = safe_get_numeric({"value": num_personas_field}, "value", 0) if num_personas_field else 0
+            num_personas_val = try_int(num_personas_field)
+            resp["__num_personas"] = num_personas_val if isinstance(num_personas_val, int) else 0
 
             cupos_field = get_field_value(resp, "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?")
-            resp["__cupos"] = safe_get_numeric({"value": cupos_field}, "value", 0) if cupos_field else 0
+            cupos_val = try_int(cupos_field)
+            resp["__cupos"] = cupos_val if isinstance(cupos_val, int) else 0
 
             bebidas_field = get_field_value(resp, "¿Cuántas bebidas podrías llevar?", "¿Cuántas bebidas (botellas o litros) podrías llevar?")
-            resp["__bebidas_qty"] = safe_get_numeric({"value": bebidas_field}, "value", 0) if bebidas_field else 0
+            bebidas_val = try_int(bebidas_field)
+            resp["__bebidas_qty"] = bebidas_val if isinstance(bebidas_val, int) else 0
 
             # Normalizar confirmación
             resp["__confirmacion_normalizada"] = normalize_confirmation(resp.get("¿Confirmas tu asistencia?"))
@@ -912,90 +1001,152 @@ def main():
         # Initialize session state
         if "submitted" not in st.session_state:
             st.session_state.submitted = False
+        if "edit_mode" not in st.session_state:
+            st.session_state.edit_mode = False
+        if "edit_doc_id" not in st.session_state:
+            st.session_state.edit_doc_id = None
+        if "loaded_responses" not in st.session_state:
+            st.session_state.loaded_responses = {}
 
         if st.session_state.submitted:
             st.success("✅ ¡Gracias! Tu respuesta ha sido registrada.")
             st.info("💡 Revisa la pestaña 'Ver Respuestas' para coordinar con los demás.")
-            if st.button("Enviar otra respuesta"):
-                st.session_state.submitted = False
-                st.rerun()
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Enviar otra respuesta", use_container_width=True):
+                    st.session_state.submitted = False
+                    st.session_state.edit_mode = False
+                    st.session_state.edit_doc_id = None
+                    st.session_state.loaded_responses = {}
+                    st.rerun()
+            with col2:
+                if st.button("Editar mi respuesta", use_container_width=True):
+                    st.session_state.submitted = False
+                    st.session_state.edit_mode = True
+                    st.rerun()
             st.stop()
 
-        # Render questions
+        # ===== SECCIÓN DE SELECCIÓN PARA EDITAR =====
+        st.markdown("### 📝 Responder o Editar Encuesta")
+
+        # Obtener lista de participantes
+        participants = get_all_participant_names()
+
+        if participants and not st.session_state.edit_mode:
+            with st.expander("✏️ ¿Ya respondiste? Selecciona tu nombre para editar", expanded=False):
+                st.caption("Si ya enviaste tu respuesta y quieres modificarla, selecciona tu nombre:")
+
+                nombres_list = ["-- Respuesta nueva --"] + [p["nombre"] for p in participants]
+                selected_name = st.selectbox(
+                    "Selecciona tu nombre",
+                    nombres_list,
+                    key="participant_selector"
+                )
+
+                if selected_name != "-- Respuesta nueva --":
+                    if st.button("Cargar mi respuesta para editar", type="primary"):
+                        doc_id, loaded_resp = load_response_by_name(selected_name)
+                        if loaded_resp:
+                            st.session_state.edit_mode = True
+                            st.session_state.edit_doc_id = doc_id
+                            st.session_state.loaded_responses = loaded_resp
+                            st.session_state.submitted = False  # Asegurar que no muestre mensaje de enviado
+                            st.success(f"✅ Respuesta de {selected_name} cargada. Puedes editarla abajo.")
+                            st.rerun()
+                        else:
+                            st.error("No se pudo cargar la respuesta")
+
+        # Mostrar indicador de modo edición
+        if st.session_state.edit_mode:
+            nombre_editando = get_field_value(st.session_state.loaded_responses, "Nombre completo", "Nombre y apellido", "Nombre") or "Usuario"
+            st.info(f"📝 **Modo Edición** - Editando respuesta de: **{nombre_editando}**")
+            if st.button("❌ Cancelar edición"):
+                st.session_state.edit_mode = False
+                st.session_state.edit_doc_id = None
+                st.session_state.loaded_responses = {}
+                st.rerun()
+
+        st.markdown("---")
+
         items = survey.get("items", [])
         responses: Dict[str, Any] = {}
 
-        # Información útil para los usuarios
-        st.info("""
-        💡 **Consejos para llenar la encuesta:**
-        - Para **adultos y menores**, puedes escribir: "2 adultos, 1 menor" o "adultos: 2 menores: 1"
-        - Para **cantidad de carne**, indica tipo y peso: "2 kg de vacuno, 1 kg de pollo"
-        - Los campos marcados con **\*** son obligatorios
-        """)
+        if not st.session_state.edit_mode:
+            st.info("""
+            💡 **Consejos para llenar la encuesta:**
+            - Para **adultos y menores**, puedes escribir: "2 adultos, 1 menor" o "adultos: 2 menores: 1"
+            - Para **cantidad de carne**, indica tipo y peso: "2 kg de vacuno, 1 kg de pollo"
+            - Los campos marcados con **\*** son obligatorios
+            """)
 
-        # We'll capture transport selection to show/hide cupos dynamically
         transport_selection = None
         cupos_value = None
 
         with st.form("encuesta_form"):
             for idx, item in enumerate(items):
                 title = item.get("title", "")
-                # If this is the cupos question, we skip rendering here; we will render conditionally below
+                # Saltar campo de cupos, se renderiza condicionalmente después
                 if title == "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?":
                     continue
 
-                # render normally
-                response = render_question(item, idx, st.session_state)
-                # normalize checkboxes to [] if None
+                default_val = None
+                if st.session_state.edit_mode and st.session_state.loaded_responses:
+                    aliases = FIELD_ALIASES.get(title, [title])
+                    default_val = get_field_value(st.session_state.loaded_responses, *aliases)
+
+                response = render_question(item, idx, default_value=default_val)
+
                 if isinstance(response, list):
                     responses[title] = response
                 else:
                     responses[title] = response if response is not None else ""
 
-                # track transport selection
                 if title == "¿Cuál es tu situación con respecto al transporte?":
                     transport_selection = responses[title] or ""
 
-                st.markdown("")  # Espaciado
+                st.markdown("")
 
-            # transport-dependent cupos field (dynamic)
-            if transport_selection:
-                ts = str(transport_selection).lower()
-                if "llevar a otras personas" in ts:
-                    cupos_value = st.number_input(
-                        "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?",
-                        min_value=0, 
-                        step=1, 
-                        value=1, 
-                        key="dynamic_cupos",
-                        help="Indica cuántas personas más podrías transportar en tu vehículo"
+            # Campo de cupos solo si ofrece transporte
+            if transport_selection and "llevar a otras personas" in str(transport_selection).lower():
+                default_cupos = 1
+                if st.session_state.edit_mode and st.session_state.loaded_responses:
+                    cupos_loaded = get_field_value(
+                        st.session_state.loaded_responses,
+                        "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?"
                     )
-                    responses["Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?"] = int(cupos_value)
-                else:
-                    # if the survey had a pre-defined cupos answer (should not) ensure it's empty
-                    responses["Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?"] = ""
+                    if cupos_loaded:
+                        cupos_parsed = try_int(cupos_loaded)
+                        if isinstance(cupos_parsed, int):
+                            default_cupos = cupos_parsed
 
-            # If no transport selection (user skipped), still render cupos as hidden empty string
-            if "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?" not in responses:
+                cupos_value = st.number_input(
+                    "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?",
+                    min_value=0,
+                    step=1,
+                    value=default_cupos,
+                    key="dynamic_cupos",
+                    help="Indica cuántas personas más podrías transportar en tu vehículo"
+                )
+                responses["Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?"] = int(cupos_value)
+            else:
                 responses["Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?"] = ""
 
-            # Submit button
-            submitted = st.form_submit_button("📤 Enviar Respuesta", type="primary", use_container_width=True)
+            # Submit button con texto dinámico
+            button_text = "💾 Actualizar Respuesta" if st.session_state.edit_mode else "📤 Enviar Respuesta"
+            submitted = st.form_submit_button(button_text, type="primary", use_container_width=True)
 
             if submitted:
-                # Validar campos requeridos
                 errors = []
                 for idx, item in enumerate(items):
                     title = item.get("title", "")
-                    # Skip cupos field - it's handled dynamically
                     if title == "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?":
                         continue
-                    
+
                     question_item = item.get("questionItem", {})
                     question = question_item.get("question", {})
                     required = question.get("required", False)
                     val = responses.get(title)
-                    # normalized empty checks: for checkbox expect list, for others expect non-empty string
+
                     if required:
                         if isinstance(val, list):
                             if len(val) == 0:
@@ -1007,43 +1158,49 @@ def main():
                 if errors:
                     st.error(f"Por favor completa los campos requeridos: {', '.join(errors)}")
                 else:
-                    # Validación de consistencia: adultos + menores vs total personas
-                    total_personas_field = responses.get("¿Cuántas personas vienen contigo?")
+                    # Normalizar nombres de campos usando mapeo global
+                    normalized_responses = {}
+                    for key, value in responses.items():
+                        normalized_key = FIELD_NORMALIZATION.get(key, key)
+                        normalized_responses[normalized_key] = value
+                    responses = normalized_responses
+
+                    # Validación de consistencia
+                    total_personas_field = responses.get("¿Cuántas personas en total van contigo?")
                     adultos_menores_field = responses.get("Indica cuántos son ADULTOS y cuántos son MENORES en tu grupo (para calcular comida)")
-                    
+
                     if total_personas_field and adultos_menores_field:
                         total_num = try_int(total_personas_field)
                         adults, minors = parse_adults_minors(adultos_menores_field)
-                        
+
                         if isinstance(total_num, int) and adults is not None and minors is not None:
                             suma_am = (adults or 0) + (minors or 0)
                             if suma_am != total_num:
                                 st.warning(f"⚠️ Nota: El total de personas ({total_num}) no coincide con adultos + menores ({suma_am}). Verifica tus respuestas.")
-                    
-                    # Post-process numeric conversions for key fields
-                    # Convert some well-known fields to int when possible
+
+                    # Convertir campos numéricos
                     numeric_fields = [
-                        "¿Cuántas personas vienen contigo?",
+                        "¿Cuántas personas en total van contigo?",
                         "Si puedes llevar a otras personas, ¿cuántos cupos disponibles tienes?",
-                        "¿Cuántas bebidas (botellas o litros) podrías llevar?"
+                        "¿Cuántas bebidas podrías llevar?"
                     ]
                     for nf in numeric_fields:
                         if nf in responses:
                             responses[nf] = try_int(responses[nf])
 
-                    # ensure checkboxes are lists (not None)
+                    # Limpiar valores
                     for k, v in list(responses.items()):
-                        if isinstance(v, list):
-                            responses[k] = v
-                        else:
-                            # keep strings trimmed
-                            if isinstance(v, str):
-                                responses[k] = v.strip()
+                        if isinstance(v, str):
+                            responses[k] = v.strip()
 
-                    # Guardar respuestas
-                    success = save_response(responses)
+                    # Guardar
+                    doc_id = st.session_state.edit_doc_id if st.session_state.edit_mode else None
+                    success = save_response(responses, doc_id=doc_id)
                     if success or not get_db():
                         st.session_state.submitted = True
+                        st.session_state.edit_mode = False
+                        st.session_state.edit_doc_id = None
+                        st.session_state.loaded_responses = {}
                         st.rerun()
 
         # Info footer
