@@ -134,6 +134,63 @@ def get_field_value(resp: Dict[str, Any], *field_names) -> Any:
             return resp[field_name]
     return None
 
+
+def resolve_default_value(resp: Dict[str, Any], title: str) -> Any:
+    """Resuelve el valor por defecto para una pregunta `title` buscando en `resp`.
+    Estrategias (en orden):
+      - clave exacta
+      - aliases definidos en FIELD_ALIASES
+      - clave resultante de FIELD_NORMALIZATION
+      - normalización (sin tildes / minúsculas) y comparación exacta
+      - comparación por inclusión (titulo dentro de clave o viceversa)
+    """
+    if not resp:
+        return None
+
+    # 1) exact match
+    if title in resp:
+        return resp[title]
+
+    # 2) aliases map for this title
+    aliases = FIELD_ALIASES.get(title, [])
+    for a in aliases:
+        if a in resp:
+            return resp[a]
+
+    # 3) normalization mapping (old -> new)
+    if title in FIELD_NORMALIZATION:
+        norm = FIELD_NORMALIZATION[title]
+        if norm in resp:
+            return resp[norm]
+
+    # helper normalizer for fuzzy compare
+    def norm_key(s: Any) -> str:
+        return remove_accents(str(s).lower()).strip()
+
+    target = norm_key(title)
+
+    # 4) exact normalized match against keys
+    for k in resp.keys():
+        if norm_key(k) == target:
+            return resp[k]
+
+    # 5) inclusion-based fuzzy match
+    for k in resp.keys():
+        nk = norm_key(k)
+        if target in nk or nk in target:
+            return resp[k]
+
+    # 6) try matching against any alias normalization globally
+    for alias_list in FIELD_ALIASES.values():
+        for a in alias_list:
+            if norm_key(a) == target:
+                # find that alias in resp
+                for k in resp.keys():
+                    if norm_key(k) == norm_key(a):
+                        return resp[k]
+
+    return None
+
 def tiene_datos_relevantes(resp: Dict[str, Any]) -> bool:
     """Verifica si la respuesta tiene datos relevantes para mostrar en expander."""
     # Campos con AMBAS versiones (compatibilidad con datos antiguos y nuevos)
@@ -437,19 +494,36 @@ def render_question(item: Dict[str, Any], index: int, default_value: Any = None)
         if choice_type == "RADIO":
             # Encontrar índice del valor por defecto
             default_index = None
-            if default_value:
+            if default_value is not None:
+                # si el valor por defecto es lista (datos mal guardados), tomar el primero
+                dv = default_value[0] if isinstance(default_value, list) and default_value else default_value
                 try:
-                    default_index = options.index(default_value)
-                except ValueError:
+                    default_index = options.index(dv)
+                except Exception:
                     default_index = None
-            val = st.radio(label, options, key=key, index=default_index)
+            # Llamar a st.radio con o sin índice según corresponda
+            if default_index is not None and isinstance(default_index, int) and 0 <= default_index < len(options):
+                val = st.radio(label, options, key=key, index=default_index)
+            else:
+                val = st.radio(label, options, key=key)
             return normalize_str(val)
 
         elif choice_type == "CHECKBOX":
             st.markdown(f"**{label}**")
             selected = []
             # Convertir default_value a lista si existe
-            default_list = default_value if isinstance(default_value, list) else []
+            default_list = []
+            if isinstance(default_value, list):
+                default_list = [str(x).strip() for x in default_value if x is not None]
+            elif isinstance(default_value, str):
+                # intentar parsear JSON estilo lista
+                try:
+                    parsed = json.loads(default_value)
+                    if isinstance(parsed, list):
+                        default_list = [str(x).strip() for x in parsed if x is not None]
+                except Exception:
+                    # fallback: separar por comas
+                    default_list = [x.strip() for x in default_value.split(",") if x.strip()]
             # use stable keys (no special chars)
             for opt in options:
                 safe_opt = re.sub(r"\W+", "_", opt)
@@ -1043,8 +1117,24 @@ def main():
                     key="participant_selector"
                 )
 
-                if selected_name != "-- Respuesta nueva --":
-                    if st.button("Cargar mi respuesta para editar", type="primary"):
+                if selected_name == "-- Respuesta nueva --":
+                    # Si el usuario vuelve a la opción de nueva respuesta, limpiar modo edición
+                    if st.session_state.edit_mode:
+                        st.session_state.edit_mode = False
+                        st.session_state.edit_doc_id = None
+                        st.session_state.loaded_responses = {}
+                else:
+                    # Cargar automáticamente la respuesta más reciente del participante seleccionado
+                    # Evitar recargar si ya está cargada la misma respuesta
+                    current_loaded_name = None
+                    if st.session_state.get("loaded_responses"):
+                        current_loaded_name = get_field_value(
+                            st.session_state.loaded_responses,
+                            "Nombre completo",
+                            "Nombre y apellido",
+                            "Nombre"
+                        )
+                    if not current_loaded_name or (current_loaded_name and current_loaded_name.strip().lower() != selected_name.strip().lower()):
                         doc_id, loaded_resp = load_response_by_name(selected_name)
                         if loaded_resp:
                             st.session_state.edit_mode = True
@@ -1091,8 +1181,7 @@ def main():
 
                 default_val = None
                 if st.session_state.edit_mode and st.session_state.loaded_responses:
-                    aliases = FIELD_ALIASES.get(title, [title])
-                    default_val = get_field_value(st.session_state.loaded_responses, *aliases)
+                    default_val = resolve_default_value(st.session_state.loaded_responses, title)
 
                 response = render_question(item, idx, default_value=default_val)
 
