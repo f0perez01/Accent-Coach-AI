@@ -4,6 +4,13 @@ import streamlit as st
 import streamlit.components.v1 as components
 from typing import List, Optional, Dict
 
+# Import syllabifier functions from dedicated module
+from syllabifier import (
+    normalize_phoneme_sequence,
+    syllabify_phonemes,
+    phonemes_to_syllables_with_fallback as _phonemes_to_syllables
+)
+
 # ---------------------------------------------------------------------------
 # Helper: JSON safe dump for embedding in HTML
 # ---------------------------------------------------------------------------
@@ -11,192 +18,15 @@ from typing import List, Optional, Dict
 def _safe_json(obj):
     return json.dumps(obj, ensure_ascii=False)
 
-# ---------------------------------------------------------------------------
-# Syllabifier (optimized + robust for American English IPA tokens)
-# ---------------------------------------------------------------------------
-
-IPA_VOWELS = {
-    "i", "ɪ", "e", "ɛ", "æ", "ʌ", "ə", "o", "ʊ", "u", "ɑ", "ɔ",
-    "ɚ", "ɝ",  # rhotacized vowels
-    "ɨ", "ʉ",
-}
-
-DIPHTHONGS = {"aɪ", "aʊ", "eɪ", "oʊ", "ɔɪ"}
-
-SYLLABIC_CONSONANTS = {"n̩", "l̩", "ɫ̩", "m̩", "r̩"}
-
-AFFRICATES = {"t͡ʃ", "d͡ʒ"}
-
-VALID_ONSETS = {
-    "p", "t", "k", "b", "d", "g",
-    "f", "v", "θ", "ð", "s", "z", "ʃ", "ʒ",
-    "h", "m", "n", "ŋ", "l", "r", "w", "j",
-    "pl", "pr", "bl", "br", "tr", "dr", "kl", "kr", "gl", "gr",
-    "fl", "fr", "sl", "sm", "sn", "sp", "st", "sk", "sw",
-    "spr", "str", "skr", "spl", "skw",
-}
-
-
-def is_vowel(phoneme: str) -> bool:
-    return phoneme in IPA_VOWELS or phoneme in DIPHTHONGS or phoneme in SYLLABIC_CONSONANTS
-
-
-def normalize_phoneme_sequence(text: str) -> List[str]:
-    """
-    Tokenize a space-separated IPA string into phoneme tokens.
-    Handles affricates, simple diphthongs and leaves tokens otherwise as-is.
-    """
-    if not text:
-        return []
-    tokens = text.strip().split()
-    merged = []
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        # attempt affricate merge
-        if i + 1 < len(tokens):
-            potential = tok + tokens[i + 1]
-            if potential in AFFRICATES:
-                merged.append(potential)
-                i += 2
-                continue
-        # handle possible multi-char diphthongs already tokenized
-        merged.append(tok)
-        i += 1
-    return merged
-
-
-def _fix_onsets(syllable_groups: List[List[str]]) -> List[List[str]]:
-    """
-    Adjust syllable boundaries to prefer valid English onsets.
-    Moves leading consonants from a syllable to the previous group's coda
-    when the onset is invalid.
-    """
-    if not syllable_groups or len(syllable_groups) < 2:
-        return syllable_groups
-
-    fixed = [list(syllable_groups[0])]
-
-    for current in syllable_groups[1:]:
-        # count leading consonants
-        lead_cons = 0
-        for phon in current:
-            if not is_vowel(phon):
-                lead_cons += 1
-            else:
-                break
-
-        # try to find maximal onset that is valid; otherwise move consonants back
-        while lead_cons > 0:
-            onset = "".join(current[:lead_cons])
-            if onset in VALID_ONSETS:
-                break
-            # move first consonant to previous coda
-            c = current.pop(0)
-            fixed[-1].append(c)
-            lead_cons -= 1
-
-        fixed.append(list(current))
-
-    # remove empty groups (if any)
-    fixed = [g for g in fixed if g]
-    return fixed
-
-
-def syllabify_phonemes(phonemes: List[str], phoneme_timings: Optional[List[Dict]] = None) -> List[Dict]:
-    """
-    Build syllables from a sequence of phonemes. If phoneme_timings is provided
-    (list of dicts in order with keys 'phoneme','start','end'), timings will be
-    aggregated per syllable.
-
-    Returns list of {'syllable': str, 'phonemes': [..], 'start': float|None, 'end': float|None}
-    """
-    if not phonemes:
-        return []
-
-    # Group by finding nuclei (vowel-like tokens). We produce groups that contain
-    # the nucleus plus surrounding consonants in a first pass.
-    groups = []
-    current = []
-
-    for p in phonemes:
-        if is_vowel(p):
-            # if current already contains something, we start a new group (coda of prev)
-            if current:
-                groups.append(list(current))
-            current = [p]
-        else:
-            # consonant attaches to current; if current empty we create a consonant-leading group
-            current.append(p)
-
-    if current:
-        groups.append(list(current))
-
-    # Fix invalid onsets using phonotactics
-    groups = _fix_onsets(groups)
-
-    # Build timing map: we must match phoneme_timings sequentially to tokens
-    timing_map = []
-    if phoneme_timings:
-        # Normalize phoneme_timings into sequence of (phoneme,start,end)
-        # Assume phoneme_timings are in the same order as tokens. If they aren't,
-        # we still attempt a best-effort matching by advancing pointers.
-        pt_ptr = 0
-        for token in phonemes:
-            # advance pointer until we find a matching phoneme token (or run out)
-            while pt_ptr < len(phoneme_timings) and phoneme_timings[pt_ptr].get("phoneme") != token:
-                # allow small normalization differences; as a fallback, accept token substring
-                # but avoid infinite loops
-                pt_ptr += 1
-            if pt_ptr < len(phoneme_timings) and phoneme_timings[pt_ptr].get("phoneme") == token:
-                timing_map.append((token, phoneme_timings[pt_ptr].get("start"), phoneme_timings[pt_ptr].get("end")))
-                pt_ptr += 1
-            else:
-                # no timing available for this token
-                timing_map.append((token, None, None))
-
-    # Now aggregate per group
-    out = []
-    # pointer over timing_map
-    tm_ptr = 0
-    for group in groups:
-        starts = []
-        ends = []
-        phon_list = list(group)
-        # consume timing_map entries matching phon_list
-        for ph in phon_list:
-            # advance until matching token found
-            while tm_ptr < len(timing_map) and timing_map[tm_ptr][0] != ph:
-                tm_ptr += 1
-            if tm_ptr < len(timing_map) and timing_map[tm_ptr][0] == ph:
-                s, e = timing_map[tm_ptr][1], timing_map[tm_ptr][2]
-                if s is not None:
-                    starts.append(s)
-                if e is not None:
-                    ends.append(e)
-                tm_ptr += 1
-            else:
-                # no timing for this phoneme; continue without consuming
-                continue
-
-        start = min(starts) if starts else None
-        end = max(ends) if ends else None
-        out.append({
-            "syllable": "".join(phon_list),
-            "phonemes": phon_list,
-            "start": start,
-            "end": end,
-        })
-
-    return out
-
 
 def phonemes_to_syllables_with_fallback(phoneme_str: str, phoneme_timings: Optional[List[Dict]] = None) -> List[Dict]:
+    """
+    Wrapper around syllabifier function with Streamlit-specific error handling.
+    """
     try:
-        phonemes = normalize_phoneme_sequence(phoneme_str)
-        return syllabify_phonemes(phonemes, phoneme_timings)
+        return _phonemes_to_syllables(phoneme_str, phoneme_timings)
     except Exception as e:
-        # safe fallback
+        # safe fallback with Streamlit warning
         st.warning(f"Syllabification failed: {e}")
         return []
 
