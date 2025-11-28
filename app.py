@@ -31,6 +31,7 @@ from asr_model import ASRModelManager
 from practice_texts import PracticeTextManager
 from ipa_definitions import IPADefinitionsManager
 from audio_processor import AudioProcessor, TTSGenerator, AudioValidator
+from auth_manager import AuthManager
 
 try:
     from groq import Groq
@@ -61,86 +62,40 @@ DEFAULT_MODEL = "facebook/wav2vec2-base-960h"
 # Initialize ASR Model Manager (global instance)
 asr_manager = ASRModelManager(DEFAULT_MODEL, MODEL_OPTIONS)
 
+# Initialize Auth Manager (global instance)
+auth_manager = AuthManager(st.secrets if hasattr(st, 'secrets') else None)
+
 # ============================================================================
 # FIREBASE AUTHENTICATION & DATABASE
 # ============================================================================
 
 def init_firebase():
-    """Initialize Firebase Admin SDK"""
-    if not _HAS_FIREBASE:
-        return
-    if not firebase_admin._apps:
-        try:
-            if "FIREBASE" in st.secrets:
-                cred_dict = dict(st.secrets["FIREBASE"])
-                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
-                cred = credentials.Certificate(cred_dict)
-                firebase_admin.initialize_app(cred)
-        except Exception as e:
-            st.error(f"Firebase Init Error: {e}")
+    """Initialize Firebase Admin SDK (delegates to AuthManager)"""
+    try:
+        auth_manager.init_firebase()
+    except Exception:
+        # If initialization fails or firebase not available, ignore gracefully
+        pass
 
 def get_db():
-    """Get Firestore database client"""
-    return firestore.client() if _HAS_FIREBASE and firebase_admin._apps else None
+    """Get Firestore database client (delegates to AuthManager)"""
+    return auth_manager.get_db()
 
 def login_user(email: str, password: str) -> dict:
-    """Login user with Firebase Authentication"""
-    api_key = st.secrets.get("FIREBASE_WEB_API_KEY")
-    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
-    try:
-        resp = requests.post(url, json={"email": email, "password": password, "returnSecureToken": True})
-        return resp.json() if resp.status_code == 200 else {"error": resp.json().get("error", {}).get("message", "Error")}
-    except Exception as e:
-        return {"error": str(e)}
+    """Login user with Firebase Authentication (delegates to AuthManager)"""
+    return auth_manager.login_user(email, password)
 
 def register_user(email: str, password: str) -> dict:
-    """Register new user with Firebase Authentication"""
-    api_key = st.secrets.get("FIREBASE_WEB_API_KEY")
-    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={api_key}"
-    try:
-        resp = requests.post(url, json={"email": email, "password": password, "returnSecureToken": True})
-        return resp.json() if resp.status_code == 200 else {"error": resp.json().get("error", {}).get("message", "Error")}
-    except Exception as e:
-        return {"error": str(e)}
+    """Register new user with Firebase Authentication (delegates to AuthManager)"""
+    return auth_manager.register_user(email, password)
 
 def save_analysis_to_firestore(user_id: str, reference_text: str, result: dict):
-    """Save pronunciation analysis to Firestore"""
-    db = get_db()
-    if not db:
-        return
-
-    doc = {
-        "user_id": user_id,
-        "reference_text": reference_text,
-        "raw_decoded": result.get("raw_decoded", ""),
-        "metrics": result.get("metrics", {}),
-        "per_word_comparison": result.get("per_word_comparison", []),
-        "llm_feedback": result.get("llm_feedback", ""),
-        "timestamp": firestore.SERVER_TIMESTAMP
-    }
-    try:
-        db.collection("accent_coach_analyses").add(doc)
-        st.toast("Analysis saved to cloud! ☁️")
-    except Exception as e:
-        print(f"Firestore Error: {e}")
+    """Save pronunciation analysis to Firestore (delegates to AuthManager)"""
+    return auth_manager.save_analysis_to_firestore(user_id, reference_text, result)
 
 def get_user_analyses(user_id: str) -> list:
-    """Get user's pronunciation analysis history from Firestore"""
-    db = get_db()
-    if not db:
-        return []
-    try:
-        docs = db.collection("english_analyses_cv").where("user_id", "==", user_id).stream()
-        data = [{"id": d.id, **d.to_dict()} for d in docs]
-        # Sort by timestamp descending
-        data.sort(
-            key=lambda x: x.get('timestamp', datetime.min) if isinstance(x.get('timestamp'), datetime) else datetime.min,
-            reverse=True
-        )
-        return data
-    except Exception as e:
-        print(f"Firestore Query Error: {e}")
-        return []
+    """Get user's pronunciation analysis history from Firestore (delegates to AuthManager)"""
+    return auth_manager.get_user_analyses(user_id)
 
 # ============================================================================
 # PHONEME PROCESSING FUNCTIONS
