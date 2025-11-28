@@ -19,7 +19,6 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import torch
-import torchaudio
 import plotly.graph_objects as go
 import plotly.express as px
 import requests
@@ -27,8 +26,10 @@ import extra_streamlit_components as stx
 
 from phonemizer.punctuation import Punctuation
 from sequence_align.pairwise import needleman_wunsch
-from gtts import gTTS
 from asr_model import ASRModelManager
+from practice_texts import PracticeTextManager
+from ipa_definitions import IPADefinitionsManager
+from audio_processor import AudioProcessor, TTSGenerator, AudioValidator
 
 try:
     from groq import Groq
@@ -47,37 +48,6 @@ except ImportError:
 # CONFIGURATION & CONSTANTS
 # ============================================================================
 
-PRACTICE_TEXTS = {
-    "Beginner": [
-        "The quick brown fox jumps over the lazy dog.",
-        "How much wood would a woodchuck chuck if a woodchuck could chuck wood?",
-        "She sells seashells by the seashore.",
-        "A big black bug bit a big black dog on his big black nose.",
-        "I saw a kitten eating chicken in the kitchen.",
-    ],
-    "Intermediate": [
-        "Peter Piper picked a peck of pickled peppers.",
-        "I scream, you scream, we all scream for ice cream.",
-        "Six thick thistle sticks. Six thick thistles stick.",
-        "Fuzzy Wuzzy was a bear. Fuzzy Wuzzy had no hair.",
-        "How can a clam cram in a clean cream can?",
-    ],
-    "Advanced": [
-        "The sixth sick sheikh's sixth sheep's sick.",
-        "Pad kid poured curd pulled cod.",
-        "Can you can a can as a canner can can a can?",
-        "Red lorry, yellow lorry, red lorry, yellow lorry.",
-        "Unique New York, you need New York, you know you need unique New York.",
-    ],
-    "Common Phrases": [
-        "Could you please repeat that?",
-        "I would like to make a reservation.",
-        "What time does the meeting start?",
-        "Thank you very much for your help.",
-        "I'm sorry, I didn't understand.",
-    ]
-}
-
 MODEL_OPTIONS = {
     "Wav2Vec2 Base (Fast, Cloud-Friendly)": "facebook/wav2vec2-base-960h",
     "Wav2Vec2 Large (Better Accuracy, Needs More RAM)": "facebook/wav2vec2-large-960h",
@@ -89,33 +59,6 @@ DEFAULT_MODEL = "facebook/wav2vec2-base-960h"
 
 # Initialize ASR Model Manager (global instance)
 asr_manager = ASRModelManager(DEFAULT_MODEL, MODEL_OPTIONS)
-
-# Diccionario educativo de símbolos IPA (Inglés Americano General)
-IPA_DEFINITIONS = {
-    # Vocales
-    "i": "i larga (see)", "iː": "i larga (see)", 
-    "ɪ": "i corta (sit)", 
-    "e": "e cerrada (bed)", "ɛ": "e abierta (bet)", 
-    "æ": "a abierta (cat)", 
-    "ɑ": "a profunda (father)", "ɑː": "a profunda (father)",
-    "ɔ": "o abierta (thought)", "ɔː": "o larga (law)",
-    "ʊ": "u corta (good)", 
-    "u": "u larga (blue)", "uː": "u larga (blue)",
-    "ʌ": "u corta/seca (cup, up)", 
-    "ə": "Schwa (sonido neutro débil, 'uh')",
-    "ɜ": "er (bird)", "ɜː": "er larga (bird)",
-    # Diptongos
-    "aɪ": "ai (my)", "eɪ": "ei (say)", "ɔɪ": "oi (boy)",
-    "aʊ": "au (cow)", "oʊ": "ou (go)", "əʊ": "ou (go)",
-    # Consonantes especiales
-    "t͡ʃ": "ch (chair)", "d͡ʒ": "j (judge)", 
-    "ʃ": "sh (she)", "ʒ": "s suave (measure)",
-    "θ": "th (think - z española)", "ð": "th (this - d suave)",
-    "ŋ": "ng (sing)", "j": "y (yes)", "ɹ": "r suave inglesa",
-    "ʔ": "Glottal stop (parada de aire)",
-    "ˈ": "Acento principal (sílaba fuerte)",
-    "ˌ": "Acento secundario"
-}
 
 # ============================================================================
 # FIREBASE AUTHENTICATION & DATABASE
@@ -199,82 +142,8 @@ def get_user_analyses(user_id: str) -> list:
         return []
 
 # ============================================================================
-# AUDIO PROCESSING FUNCTIONS (from run_mdd.py)
+# PHONEME PROCESSING FUNCTIONS
 # ============================================================================
-
-@st.cache_data
-def generate_tts_audio(text: str, lang: str = "en") -> Optional[bytes]:
-    """Generate TTS audio using gTTS"""
-    try:
-        tts = gTTS(text=text, lang=lang, slow=False)
-        mp3_fp = io.BytesIO()
-        tts.write_to_fp(mp3_fp)
-        mp3_fp.seek(0)
-        return mp3_fp.getvalue()
-    except Exception as e:
-        st.error(f"TTS generation failed: {e}")
-        return None
-
-def load_audio_from_bytes(audio_bytes: bytes, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
-    """Load audio from bytes and convert to numpy array"""
-    # Try multiple methods to load audio
-
-    # Method 1: Try with soundfile (most reliable for WAV)
-    try:
-        import soundfile as sf
-        audio_file = io.BytesIO(audio_bytes)
-        waveform, sr = sf.read(audio_file, dtype='float32')
-
-        # Convert to mono if stereo
-        if waveform.ndim > 1 and waveform.shape[1] > 1:
-            waveform = waveform.mean(axis=1)
-
-        # Resample if necessary
-        if sr != target_sr:
-            import librosa
-            waveform = librosa.resample(waveform, orig_sr=sr, target_sr=target_sr)
-
-        # Ensure it's a 1D array
-        if waveform.ndim > 1:
-            waveform = waveform.flatten()
-
-        return waveform.astype(np.float32), target_sr
-    except Exception as e1:
-        # Method 2: Try with librosa
-        try:
-            import librosa
-            audio_file = io.BytesIO(audio_bytes)
-            waveform, sr = librosa.load(audio_file, sr=target_sr, mono=True)
-            return waveform.astype(np.float32), target_sr
-        except Exception as e2:
-            # Method 3: Try with torchaudio
-            try:
-                audio_file = io.BytesIO(audio_bytes)
-                waveform, sr = torchaudio.load(audio_file)
-
-                # Convert to mono if stereo
-                if waveform.ndim > 1 and waveform.shape[0] > 1:
-                    waveform = waveform.mean(dim=0)
-
-                # Resample if necessary
-                if sr != target_sr:
-                    waveform = torchaudio.transforms.Resample(sr, target_sr)(waveform)
-
-                # Convert to numpy
-                waveform_np = waveform.numpy() if isinstance(waveform, torch.Tensor) else waveform
-
-                # Ensure 1D
-                if waveform_np.ndim > 1:
-                    waveform_np = waveform_np.flatten()
-
-                return waveform_np.astype(np.float32), target_sr
-            except Exception as e3:
-                st.error(f"Failed to load audio with all methods:")
-                st.error(f"- soundfile: {e1}")
-                st.error(f"- librosa: {e2}")
-                st.error(f"- torchaudio: {e3}")
-                return None, None
-
 
 def tokenize_phonemes(s: str) -> List[str]:
     """Tokenize phoneme string into individual tokens"""
@@ -746,17 +615,18 @@ def render_ipa_guide_component(text: str, lang: str = "en-us"):
                 # Recolectar símbolos para glosario
                 for p in phonemes_list:
                     clean_p = p.replace("ˈ", "").replace("ˌ", "")
-                    if clean_p in IPA_DEFINITIONS:
+                    if IPADefinitionsManager.get_definition(clean_p):
                         unique_symbols.add(clean_p)
-                    elif p in IPA_DEFINITIONS:
+                    elif IPADefinitionsManager.get_definition(p):
                         unique_symbols.add(p)
-                
+
                 # Pistas
                 hints = []
                 for p in phonemes_list:
                     clean_p = p.replace("ˈ", "").replace("ˌ", "")
-                    if clean_p in IPA_DEFINITIONS:
-                        desc = IPA_DEFINITIONS[clean_p].split('(')[0].strip()
+                    definition = IPADefinitionsManager.get_definition(clean_p)
+                    if definition:
+                        desc = definition.split('(')[0].strip()
                         hints.append(desc)
                 
                 hint_str = " + ".join(hints[:3])
@@ -764,7 +634,7 @@ def render_ipa_guide_component(text: str, lang: str = "en-us"):
 
                 # Generar audio individual para esta palabra
                 # Nota: Esto puede tardar un poco si la frase es muy larga
-                word_audio = generate_tts_audio(word_text, lang=lang)
+                word_audio = TTSGenerator.generate_audio(word_text, lang=lang)
 
                 breakdown_data.append({
                     "index": word_counter,
@@ -829,10 +699,10 @@ def render_ipa_guide_component(text: str, lang: str = "en-us"):
         with tab2:
             st.markdown("#### 🗝️ Símbolos Clave")
             st.markdown("Glosario de símbolos encontrados en esta frase:")
-            
+
             cols = st.columns(2)
             for i, sym in enumerate(sorted(unique_symbols)):
-                definition = IPA_DEFINITIONS.get(sym, "Sonido específico")
+                definition = IPADefinitionsManager.get_definition(sym) or "Sonido específico"
                 with cols[i % 2]:
                     st.info(f"**{sym}** : {definition}")
 
@@ -988,10 +858,10 @@ def main():
             st.header("🎯 Practice Text Selection")
 
             # Category selection
-            category = st.selectbox("Category", list(PRACTICE_TEXTS.keys()))
+            category = st.selectbox("Category", PracticeTextManager.get_categories())
 
             # Text selection
-            text_option = st.selectbox("Select a phrase", PRACTICE_TEXTS[category])
+            text_option = st.selectbox("Select a phrase", PracticeTextManager.get_texts_for_category(category))
 
             # Custom text option
             use_custom = st.checkbox("Use custom text")
@@ -1084,7 +954,7 @@ def main():
     with st.spinner("Preparing study materials..."):
         lexicon, _ = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
         phoneme_text = " ".join([phon for _, phon in lexicon])
-        tts_audio = generate_tts_audio(reference_text)
+        tts_audio = TTSGenerator.generate_audio(reference_text)
 
     # 2. Render Karaoke Player
     if tts_audio:
@@ -1157,7 +1027,7 @@ def main():
             audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, 'getvalue') else audio_bytes
 
             # Transcribe using ASRModelManager
-            audio, sr = load_audio_from_bytes(audio_data)
+            audio, sr = AudioProcessor.load_from_bytes(audio_data)
             if audio is None:
                 st.error("Audio loading failed.")
                 return
