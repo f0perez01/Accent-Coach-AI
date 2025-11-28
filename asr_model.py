@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoProcessor, AutoModel
+from transformers import AutoProcessor, AutoModelForCTC
 import streamlit as st
 from typing import Optional, Tuple
 import traceback
@@ -21,8 +21,8 @@ def load_hf_model_cached(model_name: str, hf_token: Optional[str]):
         **kwargs
     )
 
-    # AutoModel → Soporta Wav2Vec2, XLS-R, HuBERT, CT2, Seq2Seq, etc.
-    model = AutoModel.from_pretrained(
+    # Use the ForCTC variant so model outputs logits suitable for CTC decoding
+    model = AutoModelForCTC.from_pretrained(
         model_name,
         trust_remote_code=False,
         local_files_only=False,
