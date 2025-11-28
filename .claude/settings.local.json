@@ -11,7 +11,8 @@
       "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\pip.exe\" install gTTS)",
       "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\pip.exe\" install -r requirements.txt)",
       "Bash(python -m py_compile:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

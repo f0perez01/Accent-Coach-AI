@@ -198,6 +198,42 @@ def generate_reference_phonemes(text: str, lang: str = "en-us") -> Tuple[List[Tu
     return lexicon, words
 
 
+def prepare_pronunciation_widget_data(reference_text: str, lexicon: List[Tuple[str, str]]) -> Dict:
+    """
+    Prepare data for pronunciation widget with proper word-to-phoneme alignment.
+
+    Args:
+        reference_text: Original text string
+        lexicon: List of (word, phonemes) tuples from gruut
+
+    Returns:
+        Dict with keys:
+        - phoneme_text: Space-separated phonemes for all words
+        - word_timings: List of dicts with {word, phonemes} for proper alignment
+    """
+    word_timings = []
+    all_phonemes = []
+
+    for word, phonemes in lexicon:
+        # Store word-level mapping for widget
+        word_timings.append({
+            "word": word,
+            "phonemes": phonemes,
+            # Note: start/end times would come from ASR alignment
+            # For TTS preview, we leave them None and let widget auto-partition
+            "start": None,
+            "end": None
+        })
+
+        # Collect all phonemes for backward compatibility
+        all_phonemes.append(phonemes)
+
+    return {
+        "phoneme_text": " ".join(all_phonemes),
+        "word_timings": word_timings
+    }
+
+
 def get_llm_feedback(reference_text: str, per_word_comparison: List[Dict],
                      groq_api_key: str) -> Optional[str]:
     """Get accent coaching feedback via `groq_manager` wrapper.
@@ -524,13 +560,15 @@ def main():
     # 1. Generate Data
     with st.spinner("Preparing study materials..."):
         lexicon, _ = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
-        phoneme_text = " ".join([phon for _, phon in lexicon])
+        widget_data = prepare_pronunciation_widget_data(reference_text, lexicon)
+        phoneme_text = widget_data["phoneme_text"]
+        word_timings = widget_data["word_timings"]
         tts_audio = TTSGenerator.generate_audio(reference_text)
 
     # 2. Render Karaoke Player
     if tts_audio:
         b64_audio = base64.b64encode(tts_audio).decode()
-        
+
         # Generate syllables automatically from phoneme text
         syllable_timings = None
         try:
@@ -541,9 +579,10 @@ def main():
             st.warning(f"Could not generate syllables: {e}")
 
         streamlit_pronunciation_widget(
-            reference_text, 
-            phoneme_text, 
+            reference_text,
+            phoneme_text,
             b64_audio,
+            word_timings=word_timings,
             syllable_timings=syllable_timings
         )
         

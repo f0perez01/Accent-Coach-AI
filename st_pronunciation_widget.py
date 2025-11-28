@@ -71,6 +71,32 @@ def streamlit_pronunciation_widget(
     phonemes = normalize_phoneme_sequence(phoneme_text) if phoneme_text else []
     phonemes_escaped = [html.escape(p) for p in phonemes]
 
+    # Prepare word-to-phoneme mapping for display
+    word_phoneme_pairs = []
+    if word_timings:
+        for wt in word_timings:
+            word_phoneme_pairs.append({
+                "word": html.escape(wt.get("word", "")),
+                "phonemes": html.escape(wt.get("phonemes", "")),
+                "start": wt.get("start"),
+                "end": wt.get("end")
+            })
+    else:
+        # Fallback: try to partition phonemes equally across words
+        # This is a best-effort when word_timings aren't provided
+        if words and phonemes:
+            phonemes_per_word = len(phonemes) // len(words) if len(words) > 0 else 0
+            for i, word in enumerate(words):
+                start_idx = i * phonemes_per_word
+                end_idx = start_idx + phonemes_per_word if i < len(words) - 1 else len(phonemes)
+                phon_slice = phonemes[start_idx:end_idx]
+                word_phoneme_pairs.append({
+                    "word": word,
+                    "phonemes": " ".join(phon_slice),
+                    "start": None,
+                    "end": None
+                })
+
     # If syllable_timings not provided, infer syllables from phoneme_text (+ timings if available)
     inferred_syllables = None
     if syllable_timings and len(syllable_timings) > 0:
@@ -111,9 +137,18 @@ def streamlit_pronunciation_widget(
         "word_timings": payload_word_timings,
         "phoneme_timings": payload_phoneme_timings,
         "syllable_timings": payload_syllable_timings,
+        "word_phoneme_pairs": word_phoneme_pairs,
         "audio_src": src,
         "title": title or "",
     }
+
+    # Debug: Show in Streamlit UI
+    if word_phoneme_pairs:
+        st.info(f"✓ Prepared {len(word_phoneme_pairs)} word-phoneme mappings")
+    elif word_timings:
+        st.warning(f"⚠️ word_timings provided ({len(word_timings)} items) but word_phoneme_pairs is empty")
+    else:
+        st.warning("⚠️ No word_timings provided to widget")
 
     # HTML + JS UI (fixed timing-priority and using syllables correctly)
     html_code = f"""
@@ -169,6 +204,16 @@ def streamlit_pronunciation_widget(
               <option value="1.5">1.5x</option>
             </select>
             <button id="pp-play" class="pp-button" onclick="ppTogglePlay()" aria-pressed="false">▶ Play</button>
+          </div>
+        </div>
+
+        <!-- Word-to-Phoneme Mapping Table -->
+        <div id="pp-word-phoneme-map" style="margin-top:12px; margin-bottom:12px; max-height:200px; overflow-y:auto;">
+          <div style="display:grid; grid-template-columns: minmax(80px, auto) 1fr; gap:4px 8px; font-size:14px; background:#f8f9fb; padding:10px; border-radius:6px; border:1px solid #e3e8ef;">
+            <!-- Header -->
+            <div style="font-weight:600; color:#4a5568; border-bottom:1px solid #d1d9e4; padding-bottom:4px;">Word</div>
+            <div style="font-weight:600; color:#4a5568; border-bottom:1px solid #d1d9e4; padding-bottom:4px;">IPA Phonemes</div>
+            <!-- Rows will be inserted by JS -->
           </div>
         </div>
 
@@ -235,6 +280,72 @@ def streamlit_pronunciation_widget(
               span.textContent = p;
               phonArea.appendChild(span);
             }});
+          }}
+
+          // Render word-to-phoneme mapping table
+          function renderWordPhonemeMap() {{
+            const mapContainer = document.getElementById('pp-word-phoneme-map');
+            if (!mapContainer) {{
+              console.warn('Word-phoneme map container not found');
+              return;
+            }}
+
+            const grid = mapContainer.querySelector('div');
+            if (!grid) {{
+              console.warn('Grid element not found');
+              return;
+            }}
+
+            // Debug: log payload data
+            console.log('Rendering word-phoneme map');
+            console.log('payload.word_phoneme_pairs:', payload.word_phoneme_pairs);
+            console.log('payload.word_timings:', payload.word_timings);
+
+            // Clear existing rows (keep headers)
+            while (grid.children.length > 2) {{
+              grid.removeChild(grid.lastChild);
+            }}
+
+            // Add rows from word_phoneme_pairs
+            if (payload.word_phoneme_pairs && payload.word_phoneme_pairs.length) {{
+              console.log('Rendering', payload.word_phoneme_pairs.length, 'word-phoneme pairs');
+              payload.word_phoneme_pairs.forEach((pair, idx) => {{
+                // Word cell
+                const wordCell = document.createElement('div');
+                wordCell.style.cssText = 'padding:4px 6px; color:#2d3748; background:#ffffff; border-radius:4px;';
+                wordCell.textContent = pair.word;
+                grid.appendChild(wordCell);
+
+                // Phonemes cell
+                const phonCell = document.createElement('div');
+                phonCell.style.cssText = "padding:4px 6px; color:#9b2c2c; font-family:'Courier New', monospace; background:#ffffff; border-radius:4px;";
+                phonCell.textContent = '/' + pair.phonemes + '/';
+                grid.appendChild(phonCell);
+              }});
+            }} else {{
+              // Fallback: show message if no mapping available
+              console.warn('No word_phoneme_pairs available');
+              const msgCell = document.createElement('div');
+              msgCell.style.cssText = 'grid-column: 1 / -1; padding:8px; text-align:center; color:#e53e3e; font-weight:600; background:#fff5f5; border-radius:4px;';
+              msgCell.textContent = '⚠️ Word-phoneme mapping not available';
+              grid.appendChild(msgCell);
+
+              // Try to use word_timings as fallback
+              if (payload.word_timings && payload.word_timings.length) {{
+                console.log('Using word_timings as fallback');
+                payload.word_timings.forEach((wt, idx) => {{
+                  const wordCell = document.createElement('div');
+                  wordCell.style.cssText = 'padding:4px 6px; color:#2d3748; background:#fffbeb; border-radius:4px;';
+                  wordCell.textContent = wt.word || wt.text || '?';
+                  grid.appendChild(wordCell);
+
+                  const phonCell = document.createElement('div');
+                  phonCell.style.cssText = "padding:4px 6px; color:#9b2c2c; font-family:'Courier New', monospace; background:#fffbeb; border-radius:4px;";
+                  phonCell.textContent = '/' + (wt.phonemes || wt.ipa || '?') + '/';
+                  grid.appendChild(phonCell);
+                }});
+              }}
+            }}
           }}
 
           // Compute timings with correct priority (respecting provided timings)
@@ -402,6 +513,7 @@ def streamlit_pronunciation_widget(
 
           // initial render
           renderSpans();
+          renderWordPhonemeMap();
 
           // debug API
           window._pp_widget = {{ audio, getTimings: () => timings, words, phonemes }};
