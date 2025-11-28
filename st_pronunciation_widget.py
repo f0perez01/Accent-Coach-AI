@@ -208,7 +208,7 @@ def streamlit_pronunciation_widget(
         </div>
 
         <!-- Word-to-Phoneme Mapping Table -->
-        <div id="pp-word-phoneme-map" style="margin-top:12px; margin-bottom:12px; max-height:200px; overflow-y:auto;">
+        <div id="pp-word-phoneme-map" style="margin-top:12px; margin-bottom:12px; max-height:300px; overflow-y:auto;">
           <div style="display:grid; grid-template-columns: minmax(80px, auto) 1fr; gap:4px 8px; font-size:14px; background:#f8f9fb; padding:10px; border-radius:6px; border:1px solid #e3e8ef;">
             <!-- Header -->
             <div style="font-weight:600; color:#4a5568; border-bottom:1px solid #d1d9e4; padding-bottom:4px;">Word</div>
@@ -216,12 +216,6 @@ def streamlit_pronunciation_widget(
             <!-- Rows will be inserted by JS -->
           </div>
         </div>
-
-        <div id="pp-text-area" class="pp-text" aria-hidden="false" role="group" aria-label="Words"></div>
-        <div id="pp-syll-area" class="pp-syllables" aria-hidden="true" style="margin-top:6px; display:none;" role="group" aria-label="Syllables"></div>
-        <div id="pp-phon-area" class="pp-phonemes" aria-hidden="false" style="margin-top:6px;" role="group" aria-label="Phonemes"></div>
-
-        <div class="pp-meta">Velocidad y resaltado sincronizados. Pausa congela la posición.</div>
 
         <audio id="pp-audio" preload="metadata" style="display:none">
           <source src="{payload['audio_src']}" type="audio/mp3">
@@ -232,55 +226,9 @@ def streamlit_pronunciation_widget(
       <script>
         (function() {{
           const payload = {_safe_json(payload)};
-          const words = payload.words || [];
-          const phonemes = payload.phonemes || [];
           const audio = document.getElementById('pp-audio');
-          const textArea = document.getElementById('pp-text-area');
-          const phonArea = document.getElementById('pp-phon-area');
-          const syllArea = document.getElementById('pp-syll-area');
           const playBtn = document.getElementById('pp-play');
           const speedSelect = document.getElementById('pp-speed');
-
-          // Render spans: each token uses .pp-word to guarantee consistent chip visuals.
-          function renderSpans() {{
-            textArea.innerHTML = '';
-            words.forEach((w, i) => {{
-              const span = document.createElement('span');
-              span.className = 'pp-word';
-              span.dataset.index = i;
-              span.dataset.word = w;
-              span.textContent = w;
-              textArea.appendChild(span);
-            }});
-
-            // syllables (use pp-word + pp-syll so they look like chips but with monospace)
-            if (payload.syllables && payload.syllables.length) {{
-              syllArea.style.display = 'flex';
-              syllArea.setAttribute('aria-hidden', 'false');
-              syllArea.innerHTML = '';
-              payload.syllables.forEach((s, i) => {{
-                const span = document.createElement('span');
-                span.className = 'pp-word pp-syll';
-                span.dataset.index = i;
-                span.dataset.syllable = s;
-                span.textContent = s;
-                syllArea.appendChild(span);
-              }});
-            }} else {{
-              syllArea.style.display = 'none';
-              syllArea.setAttribute('aria-hidden', 'true');
-            }}
-
-            phonArea.innerHTML = '';
-            phonemes.forEach((p, i) => {{
-              const span = document.createElement('span');
-              span.className = 'pp-word pp-phon';
-              span.dataset.index = i;
-              span.dataset.phoneme = p;
-              span.textContent = p;
-              phonArea.appendChild(span);
-            }});
-          }}
 
           // Render word-to-phoneme mapping table
           function renderWordPhonemeMap() {{
@@ -348,117 +296,18 @@ def streamlit_pronunciation_widget(
             }}
           }}
 
-          // Compute timings with correct priority (respecting provided timings)
-          function computeTimingsIfMissing() {{
-            const duration = audio.duration || 0.0;
-
-            // Priority 1: word timings
-            let wTimings = (payload.word_timings && payload.word_timings.length) ? payload.word_timings : null;
-
-            // Priority 2: syllable timings
-            let sTimings = (payload.syllable_timings && payload.syllable_timings.length) ? payload.syllable_timings : null;
-
-            // Priority 3: phoneme timings
-            let pTimings = (payload.phoneme_timings && payload.phoneme_timings.length) ? payload.phoneme_timings : null;
-
-            // Fallbacks: create uniform partitions when missing
-            if (!wTimings) {{
-              const n = Math.max(words.length, 1);
-              const seg = duration / n;
-              wTimings = words.map((w, i) => ({{ word: w, start: +(i * seg).toFixed(3), end: +(((i + 1) * seg)).toFixed(3) }}));
-            }}
-
-            if (!sTimings && payload.syllables && payload.syllables.length) {{
-              const n = Math.max(payload.syllables.length, 1);
-              const seg = duration / n;
-              sTimings = payload.syllables.map((s, i) => ({{ syllable: s, start: +(i * seg).toFixed(3), end: +(((i + 1) * seg)).toFixed(3) }}));
-            }}
-
-            if (!pTimings) {{
-              const n = Math.max(phonemes.length, 1);
-              const seg = duration / n;
-              pTimings = phonemes.map((p, i) => ({{ phoneme: p, start: +(i * seg).toFixed(3), end: +(((i + 1) * seg)).toFixed(3) }}));
-            }}
-
-            return {{ wTimings, sTimings, pTimings }};
-          }}
-
-          function findActiveIndices(t, timings) {{
-            const active = [];
-            if (!timings || !timings.length) return active;
-            for (let i = 0; i < timings.length; i++) {{
-              const it = timings[i];
-              if (it == null) continue;
-              const s = it.start, e = it.end;
-              if (s == null || e == null) continue;
-              // include end when t is very close to duration (to avoid missing final token)
-              if (t >= s && t < e) active.push(i);
-            }}
-            return active;
-          }}
-
-          function clearActive() {{
-            document.querySelectorAll('.pp-word.active, .pp-syll.active, .pp-phon.active').forEach(el => el.classList.remove('active'));
-          }}
-
-          let timings = null;
-          let rafId = null;
-
-          // Single RAF loop for sync
-          function syncFrame() {{
-            const t = audio.currentTime;
-            const activeWords = timings && timings.wTimings ? findActiveIndices(t, timings.wTimings) : [];
-            const activeSylls = timings && timings.sTimings ? findActiveIndices(t, timings.sTimings) : [];
-            const activePh = timings && timings.pTimings ? findActiveIndices(t, timings.pTimings) : [];
-
-            clearActive();
-
-            // apply word highlights (highest priority)
-            activeWords.forEach(i => {{
-              const el = textArea.querySelector('.pp-word[data-index="' + i + '"]');
-              if (el) el.classList.add('active');
-            }});
-
-            // apply syllable highlights (second priority)
-            activeSylls.forEach(i => {{
-              const el = syllArea.querySelector('.pp-word.pp-syll[data-index="' + i + '"]');
-              if (el) el.classList.add('active');
-            }});
-
-            // apply phoneme highlights (third priority)
-            activePh.forEach(i => {{
-              const el = phonArea.querySelector('.pp-word.pp-phon[data-index="' + i + '"]');
-              if (el) el.classList.add('active');
-            }});
-
-            rafId = window.requestAnimationFrame(syncFrame);
-          }}
-
-          function startRAF() {{
-            if (rafId) window.cancelAnimationFrame(rafId);
-            rafId = window.requestAnimationFrame(syncFrame);
-          }}
-
-          function stopRAF() {{
-            if (rafId) {{
-              window.cancelAnimationFrame(rafId);
-              rafId = null;
-            }}
-          }}
-
+          // Simple audio playback controls
           function togglePlay() {{
             if (audio.paused) {{
               audio.play().catch(()=>{{}}); // ignore play promise rejections in restricted contexts
               playBtn.textContent = '⏸ Pause';
               playBtn.classList.add('pause');
               playBtn.setAttribute('aria-pressed', 'true');
-              startRAF();
             }} else {{
               audio.pause();
               playBtn.textContent = '▶ Resume';
               playBtn.classList.remove('pause');
               playBtn.setAttribute('aria-pressed', 'false');
-              stopRAF();
             }}
           }}
 
@@ -466,43 +315,11 @@ def streamlit_pronunciation_widget(
             playBtn.textContent = '▶ Replay';
             playBtn.classList.remove('pause');
             playBtn.setAttribute('aria-pressed', 'false');
-            stopRAF();
-            setTimeout(() => {{ audio.currentTime = 0; clearActive(); }}, 200);
+            audio.currentTime = 0;
           }};
 
           audio.onloadedmetadata = function() {{
-            timings = computeTimingsIfMissing();
-
-            // attach data attributes (and ignore items with null timings)
-            if (timings && timings.wTimings) {{
-              timings.wTimings.forEach((it, i) => {{
-                const el = textArea.querySelector('.pp-word[data-index="' + i + '"]');
-                if (el && it && it.start != null && it.end != null) {{
-                  el.dataset.start = it.start; el.dataset.end = it.end;
-                  el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]';
-                }}
-              }});
-            }}
-            if (timings && timings.sTimings) {{
-              timings.sTimings.forEach((it, i) => {{
-                const el = syllArea.querySelector('.pp-word.pp-syll[data-index="' + i + '"]');
-                if (el && it && it.start != null && it.end != null) {{
-                  el.dataset.start = it.start; el.dataset.end = it.end;
-                  el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]';
-                }}
-              }});
-            }}
-            if (timings && timings.pTimings) {{
-              timings.pTimings.forEach((it, i) => {{
-                const el = phonArea.querySelector('.pp-word.pp-phon[data-index="' + i + '"]');
-                if (el && it && it.start != null && it.end != null) {{
-                  el.dataset.start = it.start; el.dataset.end = it.end;
-                  el.title = el.textContent + ' [' + it.start + ' - ' + it.end + 's]';
-                }}
-              }});
-            }}
-
-            // enable controls if needed
+            // enable controls when audio is ready
             playBtn.disabled = false;
             speedSelect.disabled = false;
           }};
@@ -511,12 +328,8 @@ def streamlit_pronunciation_widget(
           window.ppChangeSpeed = function() {{ audio.playbackRate = parseFloat(speedSelect.value); }};
           window.ppTogglePlay = function() {{ togglePlay(); }};
 
-          // initial render
-          renderSpans();
+          // initial render of word-phoneme mapping table
           renderWordPhonemeMap();
-
-          // debug API
-          window._pp_widget = {{ audio, getTimings: () => timings, words, phonemes }};
 
           // defensive: hide play until metadata loaded (prevents weird behavior)
           playBtn.disabled = true;
