@@ -101,10 +101,21 @@ def streamlit_pronunciation_widget(
     inferred_syllables = None
     if syllable_timings and len(syllable_timings) > 0:
         # accept user-provided syllable timings (ensure format)
-        inferred_syllables = [
-            {"syllable": s.get("syllable") if isinstance(s, dict) else s, "start": s.get("start"), "end": s.get("end")}
-            for s in syllable_timings
-        ]
+        inferred_syllables = []
+        for s in syllable_timings:
+            if isinstance(s, dict):
+                inferred_syllables.append({
+                    "syllable": s.get("syllable", ""),
+                    "start": s.get("start"),
+                    "end": s.get("end")
+                })
+            else:
+                # s is a string
+                inferred_syllables.append({
+                    "syllable": str(s),
+                    "start": None,
+                    "end": None
+                })
     else:
         # try inference
         try:
@@ -113,22 +124,40 @@ def streamlit_pronunciation_widget(
             if not inferred_syllables and phonemes:
                 inferred_syllables = [{"syllable": "".join(pgroup), "phonemes": pgroup, "start": None, "end": None}
                                        for pgroup in syllabify_phonemes(phonemes)]
-        except Exception:
+        except Exception as e:
+            # Log the error but don't crash
+            print(f"Syllabification error: {e}")
             inferred_syllables = []
 
     # Prepare arrays for payload (escape syllable text)
-    syllable_texts = [html.escape(s.get("syllable") if isinstance(s, dict) else s) for s in inferred_syllables] if inferred_syllables else []
+    syllable_texts = []
+    if inferred_syllables:
+        for s in inferred_syllables:
+            if isinstance(s, dict):
+                syllable_texts.append(html.escape(s.get("syllable", "")))
+            else:
+                syllable_texts.append(html.escape(str(s)))
 
     # Ensure timings objects are lists of dicts in expected format
-    payload_word_timings = word_timings or []
-    payload_phoneme_timings = phoneme_timings or []
+    payload_word_timings = word_timings if word_timings is not None else []
+    payload_phoneme_timings = phoneme_timings if phoneme_timings is not None else []
+
     # syllable timings: if inferred_syllables have timing info, map them to expected dicts
     payload_syllable_timings = []
     if inferred_syllables:
         for s in inferred_syllables:
-            start = s.get("start") if isinstance(s, dict) else None
-            end = s.get("end") if isinstance(s, dict) else None
-            payload_syllable_timings.append({"syllable": s.get("syllable") if isinstance(s, dict) else s, "start": start, "end": end})
+            if isinstance(s, dict):
+                payload_syllable_timings.append({
+                    "syllable": s.get("syllable", ""),
+                    "start": s.get("start"),
+                    "end": s.get("end")
+                })
+            else:
+                payload_syllable_timings.append({
+                    "syllable": str(s),
+                    "start": None,
+                    "end": None
+                })
 
     payload = {
         "words": words,
@@ -142,13 +171,13 @@ def streamlit_pronunciation_widget(
         "title": title or "",
     }
 
-    # Debug: Show in Streamlit UI
-    if word_phoneme_pairs:
-        st.info(f"✓ Prepared {len(word_phoneme_pairs)} word-phoneme mappings")
-    elif word_timings:
-        st.warning(f"⚠️ word_timings provided ({len(word_timings)} items) but word_phoneme_pairs is empty")
-    else:
-        st.warning("⚠️ No word_timings provided to widget")
+    # Debug: Show in Streamlit UI (optional - can be commented out in production)
+    # if word_phoneme_pairs:
+    #     st.info(f"✓ Prepared {len(word_phoneme_pairs)} word-phoneme mappings")
+    # elif word_timings:
+    #     st.warning(f"⚠️ word_timings provided ({len(word_timings)} items) but word_phoneme_pairs is empty")
+    # else:
+    #     st.warning("⚠️ No word_timings provided to widget")
 
     # HTML + JS UI (fixed timing-priority and using syllables correctly)
     html_code = f"""
