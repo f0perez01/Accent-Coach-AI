@@ -88,11 +88,22 @@ class ConversationTutor:
         # Step 3: Text-to-Speech for response
         try:
             from audio_processor import TTSGenerator
+
+            # Generate audio for full response (for exam mode)
             audio_response = TTSGenerator.generate_audio(
                 llm_response['assistant_response']
             )
+
+            # Also generate audio specifically for follow-up question (clearer for practice mode)
+            follow_up_audio = None
+            if llm_response.get('follow_up_question'):
+                follow_up_audio = TTSGenerator.generate_audio(
+                    llm_response['follow_up_question']
+                )
+
         except Exception as e:
             audio_response = None
+            follow_up_audio = None
             # Non-fatal: user can still read the text response
 
         # Compile full result
@@ -105,6 +116,7 @@ class ConversationTutor:
             "assistant_response": llm_response.get('assistant_response', ''),
             "errors_detected": llm_response.get('errors_detected', []),
             "audio_response": audio_response,
+            "follow_up_audio": follow_up_audio,  # NEW: Dedicated audio for question
             "timestamp": datetime.now()
         }
 
