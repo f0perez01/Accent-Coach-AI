@@ -889,8 +889,8 @@ def main():
         st.header("🎙️ Record Your Pronunciation")
     
         st.markdown("**Click below to record your pronunciation**")
-        st.caption("Speak clearly and naturally. The recording will stop automatically when you're done.")
-    
+        st.caption(f"{reference_text}")
+            
         audio_bytes = st.audio_input("Record your pronunciation")
     
         if audio_bytes:
