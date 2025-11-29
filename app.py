@@ -10,7 +10,7 @@ import io
 import re
 import tempfile
 from datetime import datetime, timedelta
-from typing import List, Tuple, Dict, Optional
+from typing import List, Dict, Optional
 import json
 import base64
 from st_pronunciation_widget import streamlit_pronunciation_widget
@@ -26,8 +26,7 @@ import plotly.express as px
 import requests
 import extra_streamlit_components as stx
 
-from phonemizer.punctuation import Punctuation
-from sequence_align.pairwise import needleman_wunsch
+# NOTE: Punctuation and needleman_wunsch imports removed - now handled by PhonemeProcessor and AnalysisPipeline
 from asr_model import ASRModelManager
 from practice_texts import PracticeTextManager
 from ipa_definitions import IPADefinitionsManager
@@ -41,6 +40,7 @@ from analysis_pipeline import AnalysisPipeline
 from conversation_tutor import ConversationTutor, ConversationSession
 from conversation_manager import ConversationManager
 from prompt_templates import ConversationPromptTemplate, ConversationStarters
+from phoneme_processor import PhonemeProcessor
 
 try:
     from groq import Groq
@@ -121,120 +121,16 @@ def get_user_analyses(user_id: str) -> list:
     return auth_manager.get_user_analyses(user_id)
 
 
-def align_sequences(a: List[str], b: List[str]) -> Tuple[List[str], List[str]]:
-    """Align two sequences using Needleman-Wunsch algorithm"""
-    return needleman_wunsch(a, b, match_score=2, mismatch_score=-1, indel_score=-1, gap="_")
-
-
-def align_per_word(lexicon: List[Tuple[str, str]], rec_tokens: List[str]):
-    """Align recorded tokens to reference phonemes word by word"""
-    ref_all = []
-    word_lens = []
-    for word, phon in lexicon:
-        parts = phon.split()
-        word_lens.append(len(parts))
-        if parts:
-            ref_all.extend(parts)
-
-    if not ref_all:
-        return ["" for _ in lexicon], ["" for _ in lexicon]
-
-    aligned_ref, aligned_rec = align_sequences(ref_all, rec_tokens)
-
-    per_word_ref = []
-    per_word_rec = []
-
-    ref_token_count = 0
-    for wlen, (word, phon) in zip(word_lens, lexicon):
-        if wlen == 0:
-            per_word_ref.append("")
-            per_word_rec.append("")
-            continue
-
-        start = ref_token_count
-        end = start + wlen
-
-        ref_buf = []
-        rec_buf = []
-
-        non_gap_idx = 0
-        for a_r, a_p in zip(aligned_ref, aligned_rec):
-            if a_r != "_":
-                if start <= non_gap_idx < end:
-                    ref_buf.append(a_r)
-                    if a_p != "_":
-                        rec_buf.append(a_p)
-                non_gap_idx += 1
-
-        per_word_ref.append("".join(ref_buf))
-        per_word_rec.append("".join(rec_buf))
-
-        ref_token_count = end
-
-    return per_word_ref, per_word_rec
+# NOTE: align_sequences and align_per_word have been moved to AnalysisPipeline
+# These functions are no longer needed in app.py as they are duplicates
 
 
 # ============================================================================
 # TRANSCRIPTION & ANALYSIS PIPELINE
 # ============================================================================
 
-@st.cache_data
-def generate_reference_phonemes(text: str, lang: str = "en-us") -> Tuple[List[Tuple[str, str]], List[str]]:
-    """Generate reference phonemes from text using gruut"""
-    from gruut import sentences
-
-    clean = Punctuation(";:,.!\"?()").remove(text)
-    lexicon, words = [], []
-
-    for sent in sentences(clean, lang=lang):
-        for w in sent:
-            t = w.text.strip().lower()
-            if not t:
-                continue
-            words.append(t)
-            try:
-                phon = " ".join(w.phonemes)
-            except:
-                phon = t
-            lexicon.append((t, phon))
-
-    return lexicon, words
-
-
-def prepare_pronunciation_widget_data(reference_text: str, lexicon: List[Tuple[str, str]]) -> Dict:
-    """
-    Prepare data for pronunciation widget with proper word-to-phoneme alignment.
-
-    Args:
-        reference_text: Original text string
-        lexicon: List of (word, phonemes) tuples from gruut
-
-    Returns:
-        Dict with keys:
-        - phoneme_text: Space-separated phonemes for all words
-        - word_timings: List of dicts with {word, phonemes} for proper alignment
-    """
-    word_timings = []
-    all_phonemes = []
-
-    for word, phonemes in lexicon:
-        # Store word-level mapping for widget
-        word_timings.append({
-            "word": word,
-            "phonemes": phonemes,
-            # Note: start/end times would come from ASR alignment
-            # For TTS preview, we leave them None and let widget auto-partition
-            "start": None,
-            "end": None
-        })
-
-        # Collect all phonemes for backward compatibility
-        all_phonemes.append(phonemes)
-
-    return {
-        "phoneme_text": " ".join(all_phonemes),
-        "word_timings": word_timings
-    }
+# NOTE: generate_reference_phonemes and prepare_pronunciation_widget_data
+# have been moved to PhonemeProcessor class for better separation of concerns
 
 
 def get_llm_feedback(reference_text: str, per_word_comparison: List[Dict],
@@ -276,122 +172,8 @@ def plot_error_distribution(metrics: Dict):
     """Plot error type distribution (delegates to ResultsVisualizer)"""
     return ResultsVisualizer.plot_error_distribution(metrics)
 
-def render_ipa_guide_component(text: str, lang: str = "en-us"):
-    """
-    Renderiza una guía educativa con reproductores de audio individuales
-    por palabra usando un diseño de filas y columnas (Grid Layout).
-    """
-    from gruut import sentences
-    
-    # 1. Procesar texto
-    breakdown_data = []
-    unique_symbols = set()
-    
-    clean_text = Punctuation(';:,.!?"()').remove(text)
-    
-    # Usamos un contador global para evitar IDs duplicados en los reproductores
-    word_counter = 0 
-    
-    for sent in sentences(clean_text, lang=lang):
-        for w in sent:
-            word_text = w.text
-            try:
-                phonemes_list = w.phonemes
-                phoneme_str = "".join(phonemes_list)
-                
-                # Recolectar símbolos para glosario
-                for p in phonemes_list:
-                    clean_p = p.replace("ˈ", "").replace("ˌ", "")
-                    if IPADefinitionsManager.get_definition(clean_p):
-                        unique_symbols.add(clean_p)
-                    elif IPADefinitionsManager.get_definition(p):
-                        unique_symbols.add(p)
-
-                # Pistas
-                hints = []
-                for p in phonemes_list:
-                    clean_p = p.replace("ˈ", "").replace("ˌ", "")
-                    definition = IPADefinitionsManager.get_definition(clean_p)
-                    if definition:
-                        desc = definition.split('(')[0].strip()
-                        hints.append(desc)
-                
-                hint_str = " + ".join(hints[:3])
-                if len(hints) > 3: hint_str += "..."
-
-                # Generar audio individual para esta palabra
-                # Nota: Esto puede tardar un poco si la frase es muy larga
-                word_audio = TTSGenerator.generate_audio(word_text, lang=lang)
-
-                breakdown_data.append({
-                    "index": word_counter,
-                    "word": word_text,
-                    "ipa": f"/{phoneme_str}/",
-                    "hint": hint_str,
-                    "audio": word_audio
-                })
-                word_counter += 1
-                
-            except Exception:
-                continue
-
-    # 2. Renderizar UI
-    with st.expander("📖 Guía de Pronunciación Paso a Paso (Decodificador)", expanded=False):
-        
-        tab1, tab2 = st.tabs(["🧩 Desglose por Palabra", "📚 Glosario de Símbolos"])
-        
-        with tab1:
-            st.markdown("#### 🕵️‍♀️ Práctica de Drilling")
-            st.markdown("Escucha y repite palabra por palabra:")
-            
-            # --- ENCABEZADOS DE LA TABLA ---
-            # Ajustamos los ratios de las columnas para que se vea ordenado
-            h1, h2, h3, h4 = st.columns([1.5, 1.5, 2.5, 1.5])
-            h1.markdown("**Palabra**")
-            h2.markdown("**IPA**")
-            h3.markdown("**Pista**")
-            h4.markdown("**Audio**")
-            
-            st.divider() # Línea separadora
-            
-            # --- FILAS DE DATOS ---
-            if breakdown_data:
-                for item in breakdown_data:
-                    c1, c2, c3, c4 = st.columns([1.5, 1.5, 2.5, 1.5])
-                    
-                    # Alineación vertical visual usando padding o markdown
-                    with c1:
-                        st.markdown(f"### {item['word']}")
-                    
-                    with c2:
-                        # Usamos st.code para resaltar el IPA
-                        st.code(item['ipa'], language=None)
-                        
-                    with c3:
-                        if item['hint']:
-                            st.caption(f"💡 {item['hint']}")
-                        else:
-                            st.caption("-")
-                            
-                    with c4:
-                        if item['audio']:
-                            # key es vital aquí para evitar conflictos
-                            st.audio(item['audio'], format="audio/mp3")
-                    
-                    # Separador ligero entre filas
-                    st.markdown("<hr style='margin: 5px 0; opacity: 0.2;'>", unsafe_allow_html=True)
-            else:
-                st.warning("No se pudo procesar el desglose fonético.")
-
-        with tab2:
-            st.markdown("#### 🗝️ Símbolos Clave")
-            st.markdown("Glosario de símbolos encontrados en esta frase:")
-
-            cols = st.columns(2)
-            for i, sym in enumerate(sorted(unique_symbols)):
-                definition = IPADefinitionsManager.get_definition(sym) or "Sonido específico"
-                with cols[i % 2]:
-                    st.info(f"**{sym}** : {definition}")
+# NOTE: render_ipa_guide_component has been moved to ResultsVisualizer.render_ipa_guide
+# Data preparation moved to PhonemeProcessor.create_ipa_guide_data
 
 
 # ============================================================================
@@ -505,52 +287,12 @@ def render_conversation_tutor(user: dict, groq_api_key: str):
 
         st.success(f"📖 Active Session: {session.topic}")
 
-        # Display conversation history
-        if st.session_state.conversation_history:
-            with st.expander("💬 Conversation History", expanded=True):
-                for i, turn in enumerate(st.session_state.conversation_history, 1):
-                    st.markdown(f"**Turn {i}:**")
-
-                    col_a, col_b = st.columns([1, 1])
-
-                    with col_a:
-                        st.markdown(f"🧑 **You:** {turn.get('user_transcript', '')}")
-
-                    with col_b:
-                        if st.session_state.conversation_mode == 'practice':
-                            if turn.get('correction'):
-                                st.markdown(f"✏️ **Correction:** {turn.get('correction', '')}")
-                            if turn.get('explanation'):
-                                st.markdown(f"📚 {turn.get('explanation', '')}")
-
-                    if turn.get('follow_up_question'):
-                        st.markdown(f"🤖 **Tutor:** {turn.get('follow_up_question', '')}")
-
-                        # Play audio if available (from follow_up_audio or audio_response)
-                        follow_up_audio = turn.get('follow_up_audio')
-                        if follow_up_audio is not None and len(follow_up_audio) > 0:
-                            try:
-                                st.audio(follow_up_audio, format="audio/mp3", key=f"audio_turn_{i}")
-                            except Exception as e:
-                                # If audio playback fails, show button to regenerate
-                                if st.button("🔊 Listen", key=f"listen_turn_{i}_err", help="Generate audio for question"):
-                                    try:
-                                        question_audio = TTSGenerator.generate_audio(turn.get('follow_up_question', ''))
-                                        if question_audio:
-                                            st.audio(question_audio, format="audio/mp3")
-                                    except Exception as e2:
-                                        st.warning(f"Could not generate audio: {e2}")
-                        else:
-                            # Fallback: show button to generate on demand
-                            if st.button("🔊 Listen", key=f"listen_turn_{i}", help="Listen to tutor's question"):
-                                try:
-                                    question_audio = TTSGenerator.generate_audio(turn.get('follow_up_question', ''))
-                                    if question_audio:
-                                        st.audio(question_audio, format="audio/mp3")
-                                except Exception as e:
-                                    st.warning(f"Could not generate audio: {e}")
-
-                    st.divider()
+        # Display conversation history using ResultsVisualizer (pure UI, no logic)
+        ResultsVisualizer.render_conversation_history(
+            st.session_state.conversation_history,
+            st.session_state.conversation_mode,
+            TTSGenerator
+        )
 
         # Recording section
         st.subheader("🎙️ Your Turn")
@@ -588,15 +330,11 @@ def render_conversation_tutor(user: dict, groq_api_key: str):
                     if 'error' in result:
                         st.error(result['error'])
                     else:
-                        # Add to history
-                        st.session_state.conversation_history.append(result)
-                        session.add_turn(result)
-
-                        # Save to Firestore
-                        conversation_manager.save_conversation_turn(
-                            session.session_id,
-                            user['localId'],
-                            result
+                        # Record turn atomically (session state + session object + Firestore)
+                        conversation_manager.record_turn(
+                            session=session,
+                            turn_data=result,
+                            user_id=user['localId']
                         )
 
                         # Show response
@@ -685,8 +423,13 @@ def main():
     init_firebase()
     init_session_state()
 
-    # Initialize SessionManager with callbacks
-    session_mgr = SessionManager(login_user, register_user, get_user_analyses)
+    # Initialize SessionManager with callbacks (including save_analysis)
+    session_mgr = SessionManager(
+        login_user,
+        register_user,
+        get_user_analyses,
+        save_analysis_callback=save_analysis_to_firestore
+    )
 
     # Initialize AnalysisPipeline with manager dependencies
     analysis_pipeline = AnalysisPipeline(
@@ -845,10 +588,13 @@ def main():
         st.caption(f"Length: {len(reference_text.split())} words")
 
         # --- STUDY PHASE ---
-        # 1. Generate Data
+        # 1. Generate Data using PhonemeProcessor
         with st.spinner("Preparing study materials..."):
-            lexicon, _ = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
-            widget_data = prepare_pronunciation_widget_data(reference_text, lexicon)
+            # Use PhonemeProcessor for all phoneme-related operations
+            lexicon, _ = PhonemeProcessor.generate_reference_phonemes(
+                reference_text, st.session_state.config['lang']
+            )
+            widget_data = PhonemeProcessor.prepare_widget_data(reference_text, lexicon)
             phoneme_text = widget_data["phoneme_text"]
             word_timings = widget_data["word_timings"]
             tts_audio = TTSGenerator.generate_audio(reference_text)
@@ -856,7 +602,7 @@ def main():
         # 2. Render Karaoke Player
         if tts_audio:
             b64_audio = base64.b64encode(tts_audio).decode()
-    
+
             # Generate syllables automatically from phoneme text
             syllable_timings = None
             try:
@@ -865,7 +611,7 @@ def main():
                     syllable_timings = syllables
             except Exception as e:
                 st.warning(f"Could not generate syllables: {e}")
-    
+
             streamlit_pronunciation_widget(
                 reference_text,
                 phoneme_text,
@@ -873,12 +619,19 @@ def main():
                 word_timings=word_timings,
                 syllable_timings=syllable_timings
             )
-            
-            # === AQUÍ AGREGAMOS LA NUEVA GUÍA ===
-            st.markdown("---") # Separador sutil
-            render_ipa_guide_component(reference_text, st.session_state.config['lang'])
-            # ====================================
-            
+
+            # === IPA GUIDE (using new architecture) ===
+            st.markdown("---")
+
+            # Generate IPA guide data using PhonemeProcessor
+            breakdown_data, unique_symbols = PhonemeProcessor.create_ipa_guide_data(
+                reference_text, st.session_state.config['lang']
+            )
+
+            # Render using ResultsVisualizer (pure UI, no logic)
+            ResultsVisualizer.render_ipa_guide(breakdown_data, unique_symbols, IPADefinitionsManager)
+            # ==========================================
+
         else:
             st.info(f"**IPA:** /{phoneme_text}/")
             st.warning("Audio generation failed.")
@@ -952,11 +705,10 @@ def main():
                     use_llm=st.session_state.config['use_llm'],
                     lang=st.session_state.config['lang']
                 )
-    
+
+                # Step 3: Save analysis using SessionManager (encapsulates state + persistence)
                 if result:
-                    st.session_state.current_result = result
-                    st.session_state.analysis_history.append(result)
-                    save_analysis_to_firestore(user['localId'], reference_text, result)
+                    session_mgr.save_analysis(user['localId'], reference_text, result)
                     st.rerun()
     
         # Results display

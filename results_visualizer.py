@@ -96,105 +96,54 @@ class ResultsVisualizer:
         return fig
 
     @staticmethod
-    def render_ipa_guide(text: str, ipa_defs_manager, tts_generator, lang: str = "en-us"):
-        """Render interactive IPA pronunciation guide with word breakdown and audio.
-        
-        Args:
-            text: Reference text to break down
-            ipa_defs_manager: IPADefinitionsManager instance
-            tts_generator: TTSGenerator instance
-            lang: Language code (default 'en-us')
+    def render_ipa_guide(breakdown_data: List[Dict], unique_symbols: set, ipa_defs_manager):
         """
-        from gruut import sentences
-        
-        # 1. Process text
-        breakdown_data = []
-        unique_symbols = set()
-        
-        clean_text = Punctuation(';:,.!?"()').remove(text)
-        word_counter = 0 
-        
-        for sent in sentences(clean_text, lang=lang):
-            for w in sent:
-                word_text = w.text
-                try:
-                    phonemes_list = w.phonemes
-                    phoneme_str = "".join(phonemes_list)
-                    
-                    # Collect symbols for glossary
-                    for p in phonemes_list:
-                        clean_p = p.replace("ˈ", "").replace("ˌ", "")
-                        if ipa_defs_manager.get_definition(clean_p):
-                            unique_symbols.add(clean_p)
-                        elif ipa_defs_manager.get_definition(p):
-                            unique_symbols.add(p)
+        Renderiza la guía educativa con reproductores de audio individuales.
+        Usando datos preprocesados por PhonemeProcessor.
 
-                    # Get hints
-                    hints = []
-                    for p in phonemes_list:
-                        clean_p = p.replace("ˈ", "").replace("ˌ", "")
-                        definition = ipa_defs_manager.get_definition(clean_p)
-                        if definition:
-                            desc = definition.split('(')[0].strip()
-                            hints.append(desc)
-                    
-                    hint_str = " + ".join(hints[:3])
-                    if len(hints) > 3: hint_str += "..."
-
-                    # Generate audio for word
-                    word_audio = tts_generator.generate_audio(word_text, lang=lang)
-
-                    breakdown_data.append({
-                        "index": word_counter,
-                        "word": word_text,
-                        "ipa": f"/{phoneme_str}/",
-                        "hint": hint_str,
-                        "audio": word_audio
-                    })
-                    word_counter += 1
-                    
-                except Exception:
-                    continue
-
-        # 2. Render UI
+        Args:
+            breakdown_data: List of dicts with {index, word, ipa, hint, audio}
+            unique_symbols: Set of unique IPA symbols found in the text
+            ipa_defs_manager: IPADefinitionsManager instance for symbol definitions
+        """
         with st.expander("📖 Guía de Pronunciación Paso a Paso (Decodificador)", expanded=False):
-            
+
             tab1, tab2 = st.tabs(["🧩 Desglose por Palabra", "📚 Glosario de Símbolos"])
-            
+
             with tab1:
                 st.markdown("#### 🕵️‍♀️ Práctica de Drilling")
                 st.markdown("Escucha y repite palabra por palabra:")
-                
+
                 # Headers
                 h1, h2, h3, h4 = st.columns([1.5, 1.5, 2.5, 1.5])
                 h1.markdown("**Palabra**")
                 h2.markdown("**IPA**")
                 h3.markdown("**Pista**")
                 h4.markdown("**Audio**")
-                
+
                 st.divider()
-                
+
                 # Rows
                 if breakdown_data:
                     for item in breakdown_data:
                         c1, c2, c3, c4 = st.columns([1.5, 1.5, 2.5, 1.5])
-                        
+
                         with c1:
                             st.markdown(f"### {item['word']}")
-                        
+
                         with c2:
                             st.code(item['ipa'], language=None)
-                            
+
                         with c3:
                             if item['hint']:
                                 st.caption(f"💡 {item['hint']}")
                             else:
                                 st.caption("-")
-                                
+
                         with c4:
                             if item['audio']:
                                 st.audio(item['audio'], format="audio/mp3")
-                        
+
                         st.markdown("<hr style='margin: 5px 0; opacity: 0.2;'>", unsafe_allow_html=True)
                 else:
                     st.warning("No se pudo procesar el desglose fonético.")
@@ -208,3 +157,61 @@ class ResultsVisualizer:
                     definition = ipa_defs_manager.get_definition(sym) or "Sonido específico"
                     with cols[i % 2]:
                         st.info(f"**{sym}** : {definition}")
+
+    @staticmethod
+    def render_conversation_history(conversation_history: List[Dict], conversation_mode: str, tts_generator):
+        """
+        Render conversation history with feedback and audio playback.
+
+        Args:
+            conversation_history: List of conversation turns
+            conversation_mode: 'practice' or 'exam'
+            tts_generator: TTSGenerator class for audio generation
+        """
+        if not conversation_history:
+            return
+
+        with st.expander("💬 Conversation History", expanded=True):
+            for i, turn in enumerate(conversation_history, 1):
+                st.markdown(f"**Turn {i}:**")
+
+                col_a, col_b = st.columns([1, 1])
+
+                with col_a:
+                    st.markdown(f"🧑 **You:** {turn.get('user_transcript', '')}")
+
+                with col_b:
+                    if conversation_mode == 'practice':
+                        if turn.get('correction'):
+                            st.markdown(f"✏️ **Correction:** {turn.get('correction', '')}")
+                        if turn.get('explanation'):
+                            st.markdown(f"📚 {turn.get('explanation', '')}")
+
+                if turn.get('follow_up_question'):
+                    st.markdown(f"🤖 **Tutor:** {turn.get('follow_up_question', '')}")
+
+                    # Play audio if available
+                    follow_up_audio = turn.get('follow_up_audio')
+                    if follow_up_audio is not None and len(follow_up_audio) > 0:
+                        try:
+                            st.audio(follow_up_audio, format="audio/mp3")
+                        except Exception:
+                            # If audio playback fails, show button to regenerate
+                            if st.button("🔊 Listen", key=f"listen_turn_{i}_err", help="Generate audio for question"):
+                                try:
+                                    question_audio = tts_generator.generate_audio(turn.get('follow_up_question', ''))
+                                    if question_audio:
+                                        st.audio(question_audio, format="audio/mp3")
+                                except Exception as e:
+                                    st.warning(f"Could not generate audio: {e}")
+                    else:
+                        # Fallback: show button to generate on demand
+                        if st.button("🔊 Listen", key=f"listen_turn_{i}", help="Listen to tutor's question"):
+                            try:
+                                question_audio = tts_generator.generate_audio(turn.get('follow_up_question', ''))
+                                if question_audio:
+                                    st.audio(question_audio, format="audio/mp3")
+                            except Exception as e:
+                                st.warning(f"Could not generate audio: {e}")
+
+                st.divider()

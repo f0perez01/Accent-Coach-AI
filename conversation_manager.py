@@ -57,6 +57,51 @@ class ConversationManager:
 
         return session_data
 
+    def record_turn(
+        self,
+        session,
+        turn_data: Dict,
+        user_id: str,
+        update_session_state: bool = True
+    ) -> bool:
+        """
+        Record a conversation turn atomically (session state + session object + Firestore).
+
+        This method encapsulates the complete turn recording workflow:
+        1. Add to st.session_state.conversation_history (if update_session_state=True)
+        2. Add to session object (session.add_turn)
+        3. Persist to Firestore
+
+        Args:
+            session: ConversationSession instance
+            turn_data: Turn data from ConversationTutor
+            user_id: User ID for Firestore
+            update_session_state: Whether to update st.session_state (default True)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            import streamlit as st
+
+            # Step 1: Update session state (if requested)
+            if update_session_state:
+                if 'conversation_history' not in st.session_state:
+                    st.session_state.conversation_history = []
+                st.session_state.conversation_history.append(turn_data)
+
+            # Step 2: Add to session object
+            session.add_turn(turn_data)
+
+            # Step 3: Persist to Firestore
+            self.save_conversation_turn(session.session_id, user_id, turn_data)
+
+            return True
+
+        except Exception as e:
+            print(f"Error recording turn: {e}")
+            return False
+
     def save_conversation_turn(
         self,
         session_id: str,
@@ -65,6 +110,9 @@ class ConversationManager:
     ) -> bool:
         """
         Save a conversation turn to Firestore.
+
+        NOTE: This is a lower-level method. For most use cases, use record_turn() instead,
+        which handles session state, session object, and Firestore atomically.
 
         Args:
             session_id: Session identifier

@@ -6,24 +6,27 @@ import extra_streamlit_components as stx
 
 class SessionManager:
     """Manages authentication UI, session state, and history loading.
-    
+
     Responsibilities:
     - Handle login/register forms and validation
     - Restore session from cookies
     - Load user analysis history
     - Manage session-level state
+    - Coordinate analysis result storage (session state + persistence)
     """
 
-    def __init__(self, login_callback, register_callback, get_history_callback):
+    def __init__(self, login_callback, register_callback, get_history_callback, save_analysis_callback=None):
         """
         Args:
             login_callback: Function(email, password) -> dict with 'error' or 'idToken'
             register_callback: Function(email, password) -> dict with 'error' or 'idToken'
             get_history_callback: Function(user_id) -> list of history dicts
+            save_analysis_callback: Optional function(user_id, reference_text, result) -> None
         """
         self.login_callback = login_callback
         self.register_callback = register_callback
         self.get_history_callback = get_history_callback
+        self.save_analysis_callback = save_analysis_callback
         self.cookie_manager = stx.CookieManager(key="auth_cookies_accent")
 
     def restore_session_from_cookie(self):
@@ -156,3 +159,65 @@ class SessionManager:
             st.rerun()
             return True
         return False
+
+    def save_analysis(self, user_id: str, reference_text: str, result: Dict) -> bool:
+        """
+        Save analysis result to both session state and persistent storage.
+
+        This method encapsulates the complete storage workflow:
+        1. Update current result in session state
+        2. Append to analysis history
+        3. Persist to Firestore (if callback available)
+
+        Args:
+            user_id: User identifier for Firestore
+            reference_text: Reference text that was analyzed
+            result: Complete analysis result dict from AnalysisPipeline
+
+        Returns:
+            True if save was successful, False otherwise
+        """
+        try:
+            # Update session state
+            st.session_state.current_result = result
+            st.session_state.analysis_history.append(result)
+
+            # Persist to Firestore if callback is available
+            if self.save_analysis_callback:
+                self.save_analysis_callback(user_id, reference_text, result)
+
+            return True
+
+        except Exception as e:
+            st.error(f"Failed to save analysis: {e}")
+            return False
+
+    def update_current_analysis(self, result: Dict) -> None:
+        """
+        Update only the current analysis result in session state.
+
+        Use this when you want to update the current result without
+        appending to history or persisting to Firestore.
+
+        Args:
+            result: Analysis result dict from AnalysisPipeline
+        """
+        st.session_state.current_result = result
+
+    def get_current_result(self) -> Optional[Dict]:
+        """
+        Get the current analysis result from session state.
+
+        Returns:
+            Current result dict or None if no result exists
+        """
+        return st.session_state.get('current_result', None)
+
+    def get_analysis_history(self) -> list:
+        """
+        Get the analysis history from session state.
+
+        Returns:
+            List of analysis result dicts
+        """
+        return st.session_state.get('analysis_history', [])
