@@ -1,8 +1,10 @@
 import torch
 from transformers import AutoProcessor, AutoModelForCTC
 import streamlit as st
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 import traceback
+import numpy as np
+from audio_enhancement import AudioEnhancer, AudioQualityAnalyzer
 
 
 # -------------------------------------------------------
@@ -93,12 +95,59 @@ class ASRModelManager:
         return any(p in vocab for p in phoneme_markers)
 
     # -------------------------------------------------------
-    # Transcription
+    # Transcription with enhanced preprocessing
     # -------------------------------------------------------
-    def transcribe(self, audio, sr, use_g2p: bool = True, lang: str = "en-us") -> Tuple[str, str]:
+    def transcribe(
+        self,
+        audio,
+        sr,
+        use_g2p: bool = True,
+        lang: str = "en-us",
+        enable_enhancement: bool = True,
+        enable_vad: bool = True,
+        enable_denoising: bool = True,
+        return_quality_metrics: bool = False
+    ) -> Tuple[str, str] | Tuple[str, str, Dict]:
+        """
+        Transcribe audio with optional enhancement and quality analysis.
+
+        Args:
+            audio: Audio waveform (numpy array)
+            sr: Sample rate
+            use_g2p: Use grapheme-to-phoneme conversion
+            lang: Language code
+            enable_enhancement: Enable audio enhancement pipeline
+            enable_vad: Enable Voice Activity Detection
+            enable_denoising: Enable noise reduction
+            return_quality_metrics: Return audio quality analysis
+
+        Returns:
+            Tuple of (decoded_text, phoneme_str) or
+            Tuple of (decoded_text, phoneme_str, quality_metrics)
+        """
 
         if self.processor is None or self.model is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
+
+        # Convert to numpy array if needed
+        if not isinstance(audio, np.ndarray):
+            audio = np.array(audio)
+
+        # Quality analysis (before enhancement)
+        quality_metrics = None
+        if return_quality_metrics:
+            quality_metrics = AudioQualityAnalyzer.analyze(audio, sr)
+
+        # Audio enhancement pipeline
+        if enable_enhancement:
+            audio, sr = AudioEnhancer.enhance_for_asr(
+                audio=audio,
+                sr=sr,
+                target_sr=16000,
+                enable_vad=enable_vad,
+                enable_denoising=enable_denoising,
+                enable_normalization=True
+            )
 
         # Preprocess safely
         inputs = self.processor(
@@ -144,4 +193,8 @@ class ASRModelManager:
             except Exception as e:
                 st.warning(f"G2P failed: {e}")
 
-        return decoded, recorded_phoneme_str
+        # Return with or without quality metrics
+        if return_quality_metrics and quality_metrics:
+            return decoded, recorded_phoneme_str, quality_metrics
+        else:
+            return decoded, recorded_phoneme_str

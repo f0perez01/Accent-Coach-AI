@@ -413,7 +413,12 @@ def init_session_state():
             'model_name': DEFAULT_MODEL,  # Use base model by default (cloud-friendly)
             'use_g2p': True,
             'use_llm': True,
-            'lang': 'en-us'
+            'lang': 'en-us',
+            # Audio enhancement settings
+            'enable_enhancement': True,
+            'enable_vad': True,
+            'enable_denoising': True,
+            'show_quality_metrics': False
         }
     # Conversation tutor state
     if 'conversation_session' not in st.session_state:
@@ -702,6 +707,30 @@ def main():
             st.session_state.config['use_g2p'] = st.checkbox("Use G2P (Grapheme-to-Phoneme)", value=True)
             st.session_state.config['use_llm'] = st.checkbox("Enable LLM Feedback", value=True)
             st.session_state.config['lang'] = st.selectbox("Language", ["en-us"], index=0)
+
+            st.divider()
+            st.markdown("**Audio Enhancement**")
+            st.session_state.config['enable_enhancement'] = st.checkbox(
+                "Enable Audio Enhancement",
+                value=True,
+                help="Improves ASR accuracy with denoising and VAD"
+            )
+            if st.session_state.config['enable_enhancement']:
+                st.session_state.config['enable_vad'] = st.checkbox(
+                    "Voice Activity Detection",
+                    value=True,
+                    help="Trim silence from audio"
+                )
+                st.session_state.config['enable_denoising'] = st.checkbox(
+                    "Noise Reduction",
+                    value=True,
+                    help="Remove background noise"
+                )
+                st.session_state.config['show_quality_metrics'] = st.checkbox(
+                    "Show Quality Metrics",
+                    value=False,
+                    help="Display audio quality analysis"
+                )
 
         st.divider()
 

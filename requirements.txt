@@ -35,3 +35,8 @@ firebase-admin>=6.2.0
 
 # --- Components ---
 extra-streamlit-components>=0.1.60
+
+# --- Audio Enhancement (Optional but recommended) ---
+noisereduce>=2.0.0  # Advanced noise reduction
+# pyannote.audio>=3.0.0  # Speaker diarization (optional, heavy dependency)
+# resemblyzer>=0.1.1  # Speaker embeddings (optional)
