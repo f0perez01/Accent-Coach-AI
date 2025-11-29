@@ -52,6 +52,13 @@ class ASRModelManager:
     # Load model with fallback
     # -------------------------------------------------------
     def load_model(self, model_name: str, hf_token: Optional[str] = None):
+        # Check if model is already loaded
+        if (self.model is not None and
+            self.processor is not None and
+            self.model_name == model_name):
+            # Model already loaded, skip
+            return
+
         try:
             with st.spinner(f"📥 Loading model: {model_name}..."):
                 proc, mdl = load_hf_model_cached(model_name, hf_token)
