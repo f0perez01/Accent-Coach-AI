@@ -189,6 +189,74 @@ def streamlit_pronunciation_widget(
         .pp-button {{ padding:10px 18px; border-radius:8px; border:1px solid #1b6cff; cursor:pointer; font-weight:600; font-size:15px; background:#1b6cff; color:white; font-family:"Calibri","Segoe UI",sans-serif; box-shadow:0 3px 8px rgba(27,108,255,0.16); }}
         .pp-button.pause {{ background:#4a5568; border-color:#4a5568; }}
         .pp-meta {{ margin-top:10px; font-size:12px; color:#4b5c70; text-align:center; font-family:"Calibri","Segoe UI",sans-serif; }}
+
+        /* Horizontal viewer styles */
+        .pp-row-label {{
+          font-size:14px;
+          font-weight:600;
+          color:#4a5568;
+          margin-bottom:6px;
+          font-family:"Calibri","Segoe UI",sans-serif;
+        }}
+
+        /* Scrollable horizontal chips */
+        .pp-chip-row {{
+          display:flex;
+          gap:8px;
+          overflow-x:auto;
+          padding:6px 4px;
+          scroll-behavior:smooth;
+        }}
+
+        /* Word chips with IPA below */
+        .pp-chip-word {{
+          padding:10px 16px;
+          background:#f2f4f7;
+          color:#1f3b57;
+          border-radius:20px;
+          white-space:nowrap;
+          font-size:16px;
+          font-family:"Calibri","Segoe UI",sans-serif;
+          transition:all .15s ease;
+          display:flex;
+          flex-direction:column;
+          align-items:center;
+          gap:4px;
+        }}
+
+        .pp-chip-word-text {{
+          font-weight:600;
+        }}
+
+        .pp-chip-word-ipa {{
+          font-family:'Courier New', monospace;
+          font-size:13px;
+          color:#8a1d1d;
+        }}
+
+        .pp-chip-word.active {{
+          background:#ffe7a6;
+          transform:translateY(-2px);
+          box-shadow:0 2px 6px rgba(230,160,40,0.14);
+        }}
+
+        /* Syllable chips */
+        .pp-chip-syll {{
+          padding:6px 12px;
+          background:#f6e3e3;
+          border-radius:16px;
+          white-space:nowrap;
+          font-family:'Courier New', monospace;
+          color:#8a1d1d;
+          font-size:15px;
+          transition:all .15s ease;
+        }}
+
+        .pp-chip-syll.active {{
+          background:#ffd7d7;
+          transform:translateY(-2px);
+          box-shadow:0 2px 5px rgba(180,50,50,0.12);
+        }}
 </style>
 
 
@@ -207,14 +275,17 @@ def streamlit_pronunciation_widget(
           </div>
         </div>
 
-        <!-- Word-to-Phoneme Mapping Table -->
-        <div id="pp-word-phoneme-map" style="margin-top:12px; margin-bottom:12px; max-height:300px; overflow-y:auto;">
-          <div style="display:grid; grid-template-columns: minmax(80px, auto) 1fr; gap:4px 8px; font-size:14px; background:#f8f9fb; padding:10px; border-radius:6px; border:1px solid #e3e8ef;">
-            <!-- Header -->
-            <div style="font-weight:600; color:#4a5568; border-bottom:1px solid #d1d9e4; padding-bottom:4px;">Word</div>
-            <div style="font-weight:600; color:#4a5568; border-bottom:1px solid #d1d9e4; padding-bottom:4px;">IPA Phonemes</div>
-            <!-- Rows will be inserted by JS -->
-          </div>
+        <!-- Horizontal Word & Syllable Viewer -->
+        <div id="pp-horizontal-viewer" style="margin-top:16px; margin-bottom:16px;">
+
+          <!-- Words row -->
+          <div class="pp-row-label">Words & IPA</div>
+          <div id="pp-words-row" class="pp-chip-row"></div>
+
+          <!-- Syllables row -->
+          <div class="pp-row-label" style="margin-top:12px;">Syllables</div>
+          <div id="pp-syllables-row" class="pp-chip-row"></div>
+
         </div>
 
         <audio id="pp-audio" preload="metadata" style="display:none">
@@ -230,69 +301,82 @@ def streamlit_pronunciation_widget(
           const playBtn = document.getElementById('pp-play');
           const speedSelect = document.getElementById('pp-speed');
 
-          // Render word-to-phoneme mapping table
-          function renderWordPhonemeMap() {{
-            const mapContainer = document.getElementById('pp-word-phoneme-map');
-            if (!mapContainer) {{
-              console.warn('Word-phoneme map container not found');
+          // Render horizontal viewer with words and syllables
+          function renderHorizontalViewer() {{
+            const wordsRow = document.getElementById('pp-words-row');
+            const syllRow = document.getElementById('pp-syllables-row');
+
+            if (!wordsRow || !syllRow) {{
+              console.warn('Horizontal viewer containers not found');
               return;
             }}
 
-            const grid = mapContainer.querySelector('div');
-            if (!grid) {{
-              console.warn('Grid element not found');
-              return;
-            }}
+            // Clear rows
+            wordsRow.innerHTML = '';
+            syllRow.innerHTML = '';
 
             // Debug: log payload data
-            console.log('Rendering word-phoneme map');
+            console.log('Rendering horizontal viewer');
             console.log('payload.word_phoneme_pairs:', payload.word_phoneme_pairs);
-            console.log('payload.word_timings:', payload.word_timings);
+            console.log('payload.syllables:', payload.syllables);
 
-            // Clear existing rows (keep headers)
-            while (grid.children.length > 2) {{
-              grid.removeChild(grid.lastChild);
-            }}
-
-            // Add rows from word_phoneme_pairs
+            // Render words with IPA
             if (payload.word_phoneme_pairs && payload.word_phoneme_pairs.length) {{
-              console.log('Rendering', payload.word_phoneme_pairs.length, 'word-phoneme pairs');
-              payload.word_phoneme_pairs.forEach((pair, idx) => {{
-                // Word cell
-                const wordCell = document.createElement('div');
-                wordCell.style.cssText = 'padding:4px 6px; color:#2d3748; background:#ffffff; border-radius:4px;';
-                wordCell.textContent = pair.word;
-                grid.appendChild(wordCell);
+              payload.word_phoneme_pairs.forEach(pair => {{
+                const chip = document.createElement('div');
+                chip.className = 'pp-chip-word';
 
-                // Phonemes cell
-                const phonCell = document.createElement('div');
-                phonCell.style.cssText = "padding:4px 6px; color:#9b2c2c; font-family:'Courier New', monospace; background:#ffffff; border-radius:4px;";
-                phonCell.textContent = '/' + pair.phonemes + '/';
-                grid.appendChild(phonCell);
+                const wordText = document.createElement('div');
+                wordText.className = 'pp-chip-word-text';
+                wordText.textContent = pair.word;
+
+                const ipaText = document.createElement('div');
+                ipaText.className = 'pp-chip-word-ipa';
+                ipaText.textContent = '/' + pair.phonemes + '/';
+
+                chip.appendChild(wordText);
+                chip.appendChild(ipaText);
+                wordsRow.appendChild(chip);
+              }});
+            }} else if (payload.word_timings && payload.word_timings.length) {{
+              // Fallback to word_timings
+              console.log('Using word_timings as fallback');
+              payload.word_timings.forEach(wt => {{
+                const chip = document.createElement('div');
+                chip.className = 'pp-chip-word';
+
+                const wordText = document.createElement('div');
+                wordText.className = 'pp-chip-word-text';
+                wordText.textContent = wt.word || wt.text || '?';
+
+                const ipaText = document.createElement('div');
+                ipaText.className = 'pp-chip-word-ipa';
+                ipaText.textContent = '/' + (wt.phonemes || wt.ipa || '?') + '/';
+
+                chip.appendChild(wordText);
+                chip.appendChild(ipaText);
+                wordsRow.appendChild(chip);
               }});
             }} else {{
-              // Fallback: show message if no mapping available
-              console.warn('No word_phoneme_pairs available');
-              const msgCell = document.createElement('div');
-              msgCell.style.cssText = 'grid-column: 1 / -1; padding:8px; text-align:center; color:#e53e3e; font-weight:600; background:#fff5f5; border-radius:4px;';
-              msgCell.textContent = '⚠️ Word-phoneme mapping not available';
-              grid.appendChild(msgCell);
+              const msg = document.createElement('div');
+              msg.style.cssText = 'padding:8px; color:#e53e3e; font-weight:600;';
+              msg.textContent = '⚠️ No word data available';
+              wordsRow.appendChild(msg);
+            }}
 
-              // Try to use word_timings as fallback
-              if (payload.word_timings && payload.word_timings.length) {{
-                console.log('Using word_timings as fallback');
-                payload.word_timings.forEach((wt, idx) => {{
-                  const wordCell = document.createElement('div');
-                  wordCell.style.cssText = 'padding:4px 6px; color:#2d3748; background:#fffbeb; border-radius:4px;';
-                  wordCell.textContent = wt.word || wt.text || '?';
-                  grid.appendChild(wordCell);
-
-                  const phonCell = document.createElement('div');
-                  phonCell.style.cssText = "padding:4px 6px; color:#9b2c2c; font-family:'Courier New', monospace; background:#fffbeb; border-radius:4px;";
-                  phonCell.textContent = '/' + (wt.phonemes || wt.ipa || '?') + '/';
-                  grid.appendChild(phonCell);
-                }});
-              }}
+            // Render syllables
+            if (payload.syllables && payload.syllables.length) {{
+              payload.syllables.forEach(syl => {{
+                const chip = document.createElement('div');
+                chip.className = 'pp-chip-syll';
+                chip.textContent = syl;
+                syllRow.appendChild(chip);
+              }});
+            }} else {{
+              const msg = document.createElement('div');
+              msg.style.cssText = 'padding:8px; color:#718096; font-style:italic;';
+              msg.textContent = 'No syllable data available';
+              syllRow.appendChild(msg);
             }}
           }}
 
@@ -328,8 +412,8 @@ def streamlit_pronunciation_widget(
           window.ppChangeSpeed = function() {{ audio.playbackRate = parseFloat(speedSelect.value); }};
           window.ppTogglePlay = function() {{ togglePlay(); }};
 
-          // initial render of word-phoneme mapping table
-          renderWordPhonemeMap();
+          // initial render of horizontal viewer
+          renderHorizontalViewer();
 
           // defensive: hide play until metadata loaded (prevents weird behavior)
           playBtn.disabled = true;
