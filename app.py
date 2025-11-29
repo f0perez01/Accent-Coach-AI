@@ -38,6 +38,9 @@ from session_manager import SessionManager
 from metrics_calculator import MetricsCalculator
 from results_visualizer import ResultsVisualizer
 from analysis_pipeline import AnalysisPipeline
+from conversation_tutor import ConversationTutor, ConversationSession
+from conversation_manager import ConversationManager
+from prompt_templates import ConversationPromptTemplate, ConversationStarters
 
 try:
     from groq import Groq
@@ -412,6 +415,219 @@ def init_session_state():
             'use_llm': True,
             'lang': 'en-us'
         }
+    # Conversation tutor state
+    if 'conversation_session' not in st.session_state:
+        st.session_state.conversation_session = None
+    if 'conversation_history' not in st.session_state:
+        st.session_state.conversation_history = []
+    if 'conversation_mode' not in st.session_state:
+        st.session_state.conversation_mode = 'practice'  # 'practice' or 'exam'
+
+
+def render_conversation_tutor(user: dict, groq_api_key: str):
+    """
+    Render the Conversation Tutor interface for voice-based ESL practice.
+
+    Args:
+        user: User dict from authentication
+        groq_api_key: Groq API key for LLM
+    """
+    st.header("🗣️ Conversation Practice Tutor")
+    st.markdown("Practice natural English conversation with AI-powered feedback and guidance")
+
+    # Initialize managers
+    conversation_manager = ConversationManager(auth_manager)
+    conversation_tutor = ConversationTutor(groq_manager, asr_manager, AudioProcessor)
+
+    # Session setup
+    col1, col2, col3 = st.columns([2, 2, 1])
+
+    with col1:
+        topic = st.selectbox(
+            "📚 Conversation Topic",
+            ConversationStarters.get_topics(),
+            help="Choose a topic to practice"
+        )
+
+    with col2:
+        level = st.selectbox(
+            "🎯 Your Level",
+            ["A2", "B1-B2", "C1-C2"],
+            index=1,
+            help="Your current English proficiency level"
+        )
+
+    with col3:
+        mode = st.selectbox(
+            "Mode",
+            ["Practice", "Exam"],
+            help="Practice: Get immediate feedback | Exam: Feedback at the end"
+        )
+        st.session_state.conversation_mode = mode.lower()
+
+    st.divider()
+
+    # New Session / Continue
+    if st.session_state.conversation_session is None:
+        st.info("🎬 Start a new conversation session")
+
+        # Show conversation starter
+        starter_question = ConversationStarters.get_starter(topic, level)
+        st.markdown(f"**Tutor:** {starter_question}")
+
+        # Play TTS for starter
+        try:
+            starter_audio = TTSGenerator.generate_audio(starter_question)
+            if starter_audio:
+                st.audio(starter_audio, format="audio/mp3")
+        except:
+            pass
+
+        if st.button("🚀 Start Conversation", type="primary"):
+            # Create session
+            session_id = f"conv_{user['localId']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            st.session_state.conversation_session = ConversationSession(
+                session_id=session_id,
+                user_id=user['localId'],
+                topic=topic
+            )
+            st.session_state.conversation_history = []
+            st.rerun()
+
+    else:
+        # Active conversation session
+        session = st.session_state.conversation_session
+
+        st.success(f"📖 Active Session: {session.topic}")
+
+        # Display conversation history
+        if st.session_state.conversation_history:
+            with st.expander("💬 Conversation History", expanded=True):
+                for i, turn in enumerate(st.session_state.conversation_history, 1):
+                    st.markdown(f"**Turn {i}:**")
+
+                    col_a, col_b = st.columns([1, 1])
+
+                    with col_a:
+                        st.markdown(f"🧑 **You:** {turn.get('user_transcript', '')}")
+
+                    with col_b:
+                        if st.session_state.conversation_mode == 'practice':
+                            if turn.get('correction'):
+                                st.markdown(f"✏️ **Correction:** {turn.get('correction', '')}")
+                            if turn.get('explanation'):
+                                st.markdown(f"📚 {turn.get('explanation', '')}")
+
+                    if turn.get('follow_up_question'):
+                        st.markdown(f"🤖 **Tutor:** {turn.get('follow_up_question', '')}")
+
+                    st.divider()
+
+        # Recording section
+        st.subheader("🎙️ Your Turn")
+        st.caption("Speak naturally. Answer the tutor's question or continue the conversation.")
+
+        audio_bytes = st.audio_input("Record your response")
+
+        if audio_bytes:
+            st.success("✓ Recording captured!")
+
+            # Show playback
+            audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, "getvalue") else audio_bytes
+            st.audio(audio_data, format="audio/wav")
+
+            if st.button("🚀 Send & Get Feedback", type="primary", use_container_width=True):
+                with st.spinner("🧠 Analyzing your speech..."):
+                    # Load ASR model if needed
+                    try:
+                        hf_token = st.secrets.get("HF_API_TOKEN", os.environ.get("HF_API_TOKEN"))
+                        asr_manager.load_model(
+                            st.session_state.config['model_name'],
+                            hf_token
+                        )
+                    except Exception as e:
+                        st.error(f"Failed to load ASR model: {e}")
+                        st.stop()
+
+                    # Process speech
+                    result = conversation_tutor.process_user_speech(
+                        audio_data=audio_data,
+                        conversation_history=st.session_state.conversation_history,
+                        user_level=level
+                    )
+
+                    if 'error' in result:
+                        st.error(result['error'])
+                    else:
+                        # Add to history
+                        st.session_state.conversation_history.append(result)
+                        session.add_turn(result)
+
+                        # Save to Firestore
+                        conversation_manager.save_conversation_turn(
+                            session.session_id,
+                            user['localId'],
+                            result
+                        )
+
+                        # Show response
+                        st.success("✅ Response received!")
+
+                        # Display feedback
+                        if st.session_state.conversation_mode == 'practice':
+                            st.markdown("### 📝 Feedback")
+
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                st.markdown(f"**You said:** {result['user_transcript']}")
+                                if result.get('correction'):
+                                    st.markdown(f"**Correction:** {result['correction']}")
+                                if result.get('improved_version'):
+                                    st.info(f"✅ Better: {result['improved_version']}")
+
+                            with col2:
+                                if result.get('explanation'):
+                                    st.markdown(f"**Explanation:**\n{result['explanation']}")
+
+                        # Show tutor's follow-up
+                        if result.get('follow_up_question'):
+                            st.markdown("---")
+                            st.markdown(f"### 🤖 Tutor's Question")
+                            st.markdown(f"{result['follow_up_question']}")
+
+                            # Play TTS
+                            if result.get('audio_response'):
+                                st.audio(result['audio_response'], format="audio/mp3")
+
+                        st.rerun()
+
+        # Session controls
+        st.divider()
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("📊 Session Stats"):
+                stats = session.get_session_stats()
+                st.json(stats)
+
+        with col2:
+            if st.button("💾 Export Session"):
+                transcript = conversation_manager.export_session_to_text(session.session_id)
+                st.download_button(
+                    label="Download Transcript",
+                    data=transcript,
+                    file_name=f"conversation_{session.session_id}.txt",
+                    mime="text/plain"
+                )
+
+        with col3:
+            if st.button("🔚 End Session", type="secondary"):
+                conversation_manager.close_session(session.session_id)
+                st.session_state.conversation_session = None
+                st.session_state.conversation_history = []
+                st.success("Session ended!")
+                st.rerun()
 
 
 def main():
@@ -551,236 +767,245 @@ def main():
         # Use SessionManager for logout
         session_mgr.render_logout_button()
 
-    # Main panel
-    st.header("📝 Reference Text")
-    st.markdown(f"### {reference_text}")
-    st.caption(f"Length: {len(reference_text.split())} words")
+    # Main panel - Add tabs for different modes
+    main_tab1, main_tab2 = st.tabs(["🎯 Pronunciation Practice", "🗣️ Conversation Tutor"])
 
-    # --- STUDY PHASE ---
-    # 1. Generate Data
-    with st.spinner("Preparing study materials..."):
-        lexicon, _ = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
-        widget_data = prepare_pronunciation_widget_data(reference_text, lexicon)
-        phoneme_text = widget_data["phoneme_text"]
-        word_timings = widget_data["word_timings"]
-        tts_audio = TTSGenerator.generate_audio(reference_text)
+    with main_tab1:
+        # PRONUNCIATION PRACTICE MODE
+        st.header("📝 Reference Text")
+        st.markdown(f"### {reference_text}")
+        st.caption(f"Length: {len(reference_text.split())} words")
 
-    # 2. Render Karaoke Player
-    if tts_audio:
-        b64_audio = base64.b64encode(tts_audio).decode()
+        # --- STUDY PHASE ---
+        # 1. Generate Data
+        with st.spinner("Preparing study materials..."):
+            lexicon, _ = generate_reference_phonemes(reference_text, st.session_state.config['lang'])
+            widget_data = prepare_pronunciation_widget_data(reference_text, lexicon)
+            phoneme_text = widget_data["phoneme_text"]
+            word_timings = widget_data["word_timings"]
+            tts_audio = TTSGenerator.generate_audio(reference_text)
 
-        # Generate syllables automatically from phoneme text
-        syllable_timings = None
-        try:
-            syllables = phonemes_to_syllables_with_fallback(phoneme_text)
-            if syllables:
-                syllable_timings = syllables
-        except Exception as e:
-            st.warning(f"Could not generate syllables: {e}")
-
-        streamlit_pronunciation_widget(
-            reference_text,
-            phoneme_text,
-            b64_audio,
-            word_timings=word_timings,
-            syllable_timings=syllable_timings
-        )
-        
-        # === AQUÍ AGREGAMOS LA NUEVA GUÍA ===
-        st.markdown("---") # Separador sutil
-        render_ipa_guide_component(reference_text, st.session_state.config['lang'])
-        # ====================================
-        
-    else:
-        st.info(f"**IPA:** /{phoneme_text}/")
-        st.warning("Audio generation failed.")
-
-    st.divider()
-
-    # Recording section
-    st.header("🎙️ Record Your Pronunciation")
-
-    st.markdown("**Click below to record your pronunciation**")
-    st.caption("Speak clearly and naturally. The recording will stop automatically when you're done.")
-
-    audio_bytes = st.audio_input("Record your pronunciation")
-
-    if audio_bytes:
-        st.success("✓ Recording captured!")
-
-        # Safe extraction
-        audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, "getvalue") else audio_bytes
-
-        audio_size = len(audio_data) / 1024  # KB
-        st.caption(f"Audio size: {audio_size:.1f} KB")
-
-        # Diagnostics
-        with st.expander("🔍 Audio Diagnostics (click to expand)"):
+        # 2. Render Karaoke Player
+        if tts_audio:
+            b64_audio = base64.b64encode(tts_audio).decode()
+    
+            # Generate syllables automatically from phoneme text
+            syllable_timings = None
             try:
-                import soundfile as sf
-
-                audio_file = io.BytesIO(audio_data)
-                waveform, sr = sf.read(audio_file, dtype='float32')
-
-                st.write(f"Sample rate: {sr} Hz")
-                st.write(f"Duration: {len(waveform) / sr:.2f} seconds")
-                st.write(f"Samples: {len(waveform)}")
-
+                syllables = phonemes_to_syllables_with_fallback(phoneme_text)
+                if syllables:
+                    syllable_timings = syllables
             except Exception as e:
-                st.error(f"Could not analyze audio: {e}")
-
-        # FIXED PLAYBACK
-        try:
-            st.audio(audio_data, format="audio/wav")
-        except Exception:
-            st.warning("⚠️ Retrying audio playback with fallback...")
-            try:
-                st.audio(bytes(audio_data), format="audio/wav")
-            except:
-                st.error("❌ Audio playback failed.")
-
-
-    # Analysis button
-    if audio_bytes:
-        if st.button("🚀 Analyze Pronunciation", type="primary", use_container_width=True):
-            # Step 1: Load ASR model
-            try:
-                asr_manager.load_model(
-                    st.session_state.config['model_name'],
-                    hf_token
-                )
-            except Exception as e:
-                st.error(f"Failed to load ASR model: {e}")
-                st.stop()
-
-            # Convert audio_bytes to bytes if it's a file-like object
-            audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, 'getvalue') else audio_bytes
-
-            # Step 2: Use AnalysisPipeline to orchestrate the entire workflow
-            result = analysis_pipeline.run(
-                audio_data,
+                st.warning(f"Could not generate syllables: {e}")
+    
+            streamlit_pronunciation_widget(
                 reference_text,
-                use_g2p=st.session_state.config['use_g2p'],
-                use_llm=st.session_state.config['use_llm'],
-                lang=st.session_state.config['lang']
+                phoneme_text,
+                b64_audio,
+                word_timings=word_timings,
+                syllable_timings=syllable_timings
             )
-
-            if result:
-                st.session_state.current_result = result
-                st.session_state.analysis_history.append(result)
-                save_analysis_to_firestore(user['localId'], reference_text, result)
-                st.rerun()
-
-    # Results display
-    if st.session_state.current_result:
-        # Show current result
+            
+            # === AQUÍ AGREGAMOS LA NUEVA GUÍA ===
+            st.markdown("---") # Separador sutil
+            render_ipa_guide_component(reference_text, st.session_state.config['lang'])
+            # ====================================
+            
+        else:
+            st.info(f"**IPA:** /{phoneme_text}/")
+            st.warning("Audio generation failed.")
+    
         st.divider()
-        st.header("📊 Analysis Results")
-
-        result = st.session_state.current_result
-
-        # Tabs
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "📋 Word Comparison",
-            "🎓 Coach Feedback",
-            "🔬 Technical Analysis",
-            "📚 History"
-        ])
-
-        with tab1:
-            st.subheader("Word-by-Word Comparison")
-
-            col1, col2 = st.columns([3, 1])
-            with col2:
-                show_errors_only = st.checkbox("Show errors only", value=False)
-
-            display_comparison_table(result['per_word_comparison'], show_errors_only)
-
-            # Quick stats
-            metrics = result['metrics']
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Word Accuracy", f"{metrics['word_accuracy']:.1f}%")
-            col2.metric("Correct Words", f"{metrics['correct_words']}/{metrics['total_words']}")
-            col3.metric("Phoneme Accuracy", f"{metrics['phoneme_accuracy']:.1f}%")
-
-        with tab2:
-            st.subheader("AI Coach Feedback")
-
-            if result['llm_feedback']:
-                st.markdown(result['llm_feedback'])
-
-                # Copy button
-                if st.button("📋 Copy Feedback"):
-                    st.code(result['llm_feedback'])
-            else:
-                st.info("LLM feedback is disabled. Enable it in Advanced Settings.")
-
-        with tab3:
-            st.subheader("Technical Analysis")
-
-            # Metrics
-            st.markdown("#### Metrics")
-            metrics = result['metrics']
-
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Word Accuracy", f"{metrics['word_accuracy']:.1f}%")
-            col2.metric("Phoneme Accuracy", f"{metrics['phoneme_accuracy']:.1f}%")
-            col3.metric("Phoneme Error Rate", f"{metrics['phoneme_error_rate']:.1f}%")
-            col4.metric("Total Errors", metrics['substitutions'] + metrics['insertions'] + metrics['deletions'])
-
-            # Error distribution
-            st.markdown("#### Error Distribution")
-            fig = plot_error_distribution(metrics)
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Waveform
-            st.markdown("#### Audio Waveform")
-            fig_wave = plot_waveform(result['audio_array'], result['sample_rate'])
-            st.plotly_chart(fig_wave, use_container_width=True)
-
-            # Technical details
-            with st.expander("🔍 View Technical Details"):
-                st.markdown("**Raw Decoded Text:**")
-                st.code(result['raw_decoded'])
-                st.markdown("**Phoneme String:**")
-                st.code(result['recorded_phoneme_str'])
-
-        with tab4:
-            st.subheader("Session History")
-
-            if len(st.session_state.analysis_history) > 0:
-                st.info(f"Total attempts: {len(st.session_state.analysis_history)}")
-
-                for i, hist_result in enumerate(reversed(st.session_state.analysis_history)):
-                    with st.expander(f"Attempt #{len(st.session_state.analysis_history) - i} - {hist_result['timestamp'].strftime('%H:%M:%S')}"):
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("Word Accuracy", f"{hist_result['metrics']['word_accuracy']:.1f}%")
-                        col2.metric("Phoneme Accuracy", f"{hist_result['metrics']['phoneme_accuracy']:.1f}%")
-                        col3.metric("Errors", hist_result['metrics']['substitutions'] + hist_result['metrics']['insertions'] + hist_result['metrics']['deletions'])
-
-                        st.audio(hist_result['audio_data'], format="audio/wav")
-
-                # Export option
-                if st.button("💾 Export History as JSON"):
-                    export_data = []
-                    for hist_result in st.session_state.analysis_history:
-                        export_data.append({
-                            'timestamp': hist_result['timestamp'].isoformat(),
-                            'reference_text': hist_result['reference_text'],
-                            'metrics': hist_result['metrics'],
-                            'per_word_comparison': hist_result['per_word_comparison']
-                        })
-
-                    json_str = json.dumps(export_data, indent=2)
-                    st.download_button(
-                        label="Download JSON",
-                        data=json_str,
-                        file_name=f"accent_coach_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                        mime="application/json"
+    
+        # Recording section
+        st.header("🎙️ Record Your Pronunciation")
+    
+        st.markdown("**Click below to record your pronunciation**")
+        st.caption("Speak clearly and naturally. The recording will stop automatically when you're done.")
+    
+        audio_bytes = st.audio_input("Record your pronunciation")
+    
+        if audio_bytes:
+            st.success("✓ Recording captured!")
+    
+            # Safe extraction
+            audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, "getvalue") else audio_bytes
+    
+            audio_size = len(audio_data) / 1024  # KB
+            st.caption(f"Audio size: {audio_size:.1f} KB")
+    
+            # Diagnostics
+            with st.expander("🔍 Audio Diagnostics (click to expand)"):
+                try:
+                    import soundfile as sf
+    
+                    audio_file = io.BytesIO(audio_data)
+                    waveform, sr = sf.read(audio_file, dtype='float32')
+    
+                    st.write(f"Sample rate: {sr} Hz")
+                    st.write(f"Duration: {len(waveform) / sr:.2f} seconds")
+                    st.write(f"Samples: {len(waveform)}")
+    
+                except Exception as e:
+                    st.error(f"Could not analyze audio: {e}")
+    
+            # FIXED PLAYBACK
+            try:
+                st.audio(audio_data, format="audio/wav")
+            except Exception:
+                st.warning("⚠️ Retrying audio playback with fallback...")
+                try:
+                    st.audio(bytes(audio_data), format="audio/wav")
+                except:
+                    st.error("❌ Audio playback failed.")
+    
+    
+        # Analysis button
+        if audio_bytes:
+            if st.button("🚀 Analyze Pronunciation", type="primary", use_container_width=True):
+                # Step 1: Load ASR model
+                try:
+                    asr_manager.load_model(
+                        st.session_state.config['model_name'],
+                        hf_token
                     )
-            else:
-                st.info("No analysis history yet. Record and analyze your first pronunciation!")
+                except Exception as e:
+                    st.error(f"Failed to load ASR model: {e}")
+                    st.stop()
+    
+                # Convert audio_bytes to bytes if it's a file-like object
+                audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, 'getvalue') else audio_bytes
+    
+                # Step 2: Use AnalysisPipeline to orchestrate the entire workflow
+                result = analysis_pipeline.run(
+                    audio_data,
+                    reference_text,
+                    use_g2p=st.session_state.config['use_g2p'],
+                    use_llm=st.session_state.config['use_llm'],
+                    lang=st.session_state.config['lang']
+                )
+    
+                if result:
+                    st.session_state.current_result = result
+                    st.session_state.analysis_history.append(result)
+                    save_analysis_to_firestore(user['localId'], reference_text, result)
+                    st.rerun()
+    
+        # Results display
+        if st.session_state.current_result:
+            # Show current result
+            st.divider()
+            st.header("📊 Analysis Results")
+    
+            result = st.session_state.current_result
+    
+            # Tabs
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "📋 Word Comparison",
+                "🎓 Coach Feedback",
+                "🔬 Technical Analysis",
+                "📚 History"
+            ])
+    
+            with tab1:
+                st.subheader("Word-by-Word Comparison")
+    
+                col1, col2 = st.columns([3, 1])
+                with col2:
+                    show_errors_only = st.checkbox("Show errors only", value=False)
+    
+                display_comparison_table(result['per_word_comparison'], show_errors_only)
+    
+                # Quick stats
+                metrics = result['metrics']
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Word Accuracy", f"{metrics['word_accuracy']:.1f}%")
+                col2.metric("Correct Words", f"{metrics['correct_words']}/{metrics['total_words']}")
+                col3.metric("Phoneme Accuracy", f"{metrics['phoneme_accuracy']:.1f}%")
+    
+            with tab2:
+                st.subheader("AI Coach Feedback")
+    
+                if result['llm_feedback']:
+                    st.markdown(result['llm_feedback'])
+    
+                    # Copy button
+                    if st.button("📋 Copy Feedback"):
+                        st.code(result['llm_feedback'])
+                else:
+                    st.info("LLM feedback is disabled. Enable it in Advanced Settings.")
+    
+            with tab3:
+                st.subheader("Technical Analysis")
+    
+                # Metrics
+                st.markdown("#### Metrics")
+                metrics = result['metrics']
+    
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Word Accuracy", f"{metrics['word_accuracy']:.1f}%")
+                col2.metric("Phoneme Accuracy", f"{metrics['phoneme_accuracy']:.1f}%")
+                col3.metric("Phoneme Error Rate", f"{metrics['phoneme_error_rate']:.1f}%")
+                col4.metric("Total Errors", metrics['substitutions'] + metrics['insertions'] + metrics['deletions'])
+    
+                # Error distribution
+                st.markdown("#### Error Distribution")
+                fig = plot_error_distribution(metrics)
+                st.plotly_chart(fig, use_container_width=True)
+    
+                # Waveform
+                st.markdown("#### Audio Waveform")
+                fig_wave = plot_waveform(result['audio_array'], result['sample_rate'])
+                st.plotly_chart(fig_wave, use_container_width=True)
+    
+                # Technical details
+                with st.expander("🔍 View Technical Details"):
+                    st.markdown("**Raw Decoded Text:**")
+                    st.code(result['raw_decoded'])
+                    st.markdown("**Phoneme String:**")
+                    st.code(result['recorded_phoneme_str'])
+    
+            with tab4:
+                st.subheader("Session History")
+    
+                if len(st.session_state.analysis_history) > 0:
+                    st.info(f"Total attempts: {len(st.session_state.analysis_history)}")
+    
+                    for i, hist_result in enumerate(reversed(st.session_state.analysis_history)):
+                        with st.expander(f"Attempt #{len(st.session_state.analysis_history) - i} - {hist_result['timestamp'].strftime('%H:%M:%S')}"):
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Word Accuracy", f"{hist_result['metrics']['word_accuracy']:.1f}%")
+                            col2.metric("Phoneme Accuracy", f"{hist_result['metrics']['phoneme_accuracy']:.1f}%")
+                            col3.metric("Errors", hist_result['metrics']['substitutions'] + hist_result['metrics']['insertions'] + hist_result['metrics']['deletions'])
+    
+                            st.audio(hist_result['audio_data'], format="audio/wav")
+    
+                    # Export option
+                    if st.button("💾 Export History as JSON"):
+                        export_data = []
+                        for hist_result in st.session_state.analysis_history:
+                            export_data.append({
+                                'timestamp': hist_result['timestamp'].isoformat(),
+                                'reference_text': hist_result['reference_text'],
+                                'metrics': hist_result['metrics'],
+                                'per_word_comparison': hist_result['per_word_comparison']
+                            })
+    
+                        json_str = json.dumps(export_data, indent=2)
+                        st.download_button(
+                            label="Download JSON",
+                            data=json_str,
+                            file_name=f"accent_coach_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime="application/json"
+                        )
+                else:
+                    st.info("No analysis history yet. Record and analyze your first pronunciation!")
+    
+    
 
+    with main_tab2:
+        # CONVERSATION TUTOR MODE
+        render_conversation_tutor(user, groq_api_key)
 
 if __name__ == "__main__":
     main()
