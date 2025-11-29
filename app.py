@@ -528,9 +528,19 @@ def render_conversation_tutor(user: dict, groq_api_key: str):
 
                         # Play audio if available (from follow_up_audio or audio_response)
                         follow_up_audio = turn.get('follow_up_audio')
-                        if follow_up_audio:
-                            st.audio(follow_up_audio, format="audio/mp3", key=f"audio_turn_{i}")
-                        elif turn.get('audio_response'):
+                        if follow_up_audio is not None and len(follow_up_audio) > 0:
+                            try:
+                                st.audio(follow_up_audio, format="audio/mp3", key=f"audio_turn_{i}")
+                            except Exception as e:
+                                # If audio playback fails, show button to regenerate
+                                if st.button("🔊 Listen", key=f"listen_turn_{i}_err", help="Generate audio for question"):
+                                    try:
+                                        question_audio = TTSGenerator.generate_audio(turn.get('follow_up_question', ''))
+                                        if question_audio:
+                                            st.audio(question_audio, format="audio/mp3")
+                                    except Exception as e2:
+                                        st.warning(f"Could not generate audio: {e2}")
+                        else:
                             # Fallback: show button to generate on demand
                             if st.button("🔊 Listen", key=f"listen_turn_{i}", help="Listen to tutor's question"):
                                 try:
@@ -618,10 +628,19 @@ def render_conversation_tutor(user: dict, groq_api_key: str):
                             st.info(f"**{result['follow_up_question']}**")
 
                             # Play TTS - prioritize dedicated follow_up_audio
-                            if result.get('follow_up_audio'):
-                                st.audio(result['follow_up_audio'], format="audio/mp3")
-                            elif result.get('audio_response'):
-                                st.audio(result['audio_response'], format="audio/mp3")
+                            follow_up_audio = result.get('follow_up_audio')
+                            audio_response = result.get('audio_response')
+
+                            if follow_up_audio is not None and len(follow_up_audio) > 0:
+                                try:
+                                    st.audio(follow_up_audio, format="audio/mp3")
+                                except Exception as e:
+                                    st.caption(f"🔊 Audio playback error: {e}")
+                            elif audio_response is not None and len(audio_response) > 0:
+                                try:
+                                    st.audio(audio_response, format="audio/mp3")
+                                except Exception as e:
+                                    st.caption(f"🔊 Audio playback error: {e}")
                             else:
                                 st.caption("🔊 Audio not available")
 
