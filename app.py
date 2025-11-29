@@ -41,6 +41,7 @@ from conversation_tutor import ConversationTutor, ConversationSession
 from conversation_manager import ConversationManager
 from prompt_templates import ConversationPromptTemplate, ConversationStarters
 from phoneme_processor import PhonemeProcessor
+from writing_coach_manager import WritingCoachManager
 
 try:
     from groq import Groq
@@ -412,6 +413,231 @@ def render_conversation_tutor(user: dict, groq_api_key: str):
                 st.rerun()
 
 
+def render_writing_coach(user: dict, writing_coach_manager: WritingCoachManager):
+    """
+    Render the Writing Coach interface for interview practice and writing evaluation.
+
+    Args:
+        user: User dict from authentication
+        writing_coach_manager: WritingCoachManager instance
+    """
+    st.header("✍️ Interview Writing Coach")
+    st.markdown("Practice writing answers to interview questions and receive AI-powered feedback")
+
+    # Initialize writing-specific session state
+    if 'selected_question_ids' not in st.session_state:
+        st.session_state.selected_question_ids = set()
+    if 'current_writing_batch' not in st.session_state:
+        st.session_state.current_writing_batch = []
+    if 'writing_text' not in st.session_state:
+        st.session_state.writing_text = ""
+    if 'writing_result' not in st.session_state:
+        st.session_state.writing_result = None
+
+    # Question Selection UI
+    st.subheader("🎯 Select Interview Questions")
+
+    col_filter, col_auto = st.columns([3, 1])
+    with col_filter:
+        topic_group = st.selectbox(
+            "Topic Group",
+            list(WritingCoachManager.TOPICS.keys()),
+            key="writing_topic_group"
+        )
+
+    with col_auto:
+        if st.button("🎲 Auto-Select 3"):
+            import random
+            all_questions = WritingCoachManager.TOPICS.get(topic_group, [])
+            picks = random.sample(all_questions, min(3, len(all_questions)))
+            for q in picks:
+                st.session_state.selected_question_ids.add(q['id'])
+            st.toast(f"Auto-selected {len(picks)} questions!")
+            st.rerun()
+
+    # Display question cards
+    questions = WritingCoachManager.TOPICS.get(topic_group, [])
+    cols = st.columns(3)
+
+    for idx, question in enumerate(questions):
+        is_selected = question["id"] in st.session_state.selected_question_ids
+
+        with cols[idx % 3]:
+            # Selection button
+            button_label = f"{'✅' if is_selected else '⬜'} {question['title']}"
+            if st.button(button_label, key=f"q_btn_{question['id']}", use_container_width=True):
+                if is_selected:
+                    st.session_state.selected_question_ids.discard(question['id'])
+                else:
+                    st.session_state.selected_question_ids.add(question['id'])
+                st.rerun()
+
+            # Question description
+            status_color = "#2196F3" if is_selected else "#e0e0e0"
+            bg_color = "#e3f2fd" if is_selected else "#ffffff"
+            xp_value = WritingCoachManager.DIFFICULTY_XP.get(question.get('difficulty'), 10)
+
+            st.markdown(f"""
+            <div style="margin-top:-5px; margin-bottom:15px; padding:10px; border-radius:8px;
+                        border-left:4px solid {status_color}; background-color:{bg_color};
+                        font-size:0.85rem; color:#555;">
+                {question['desc']}
+                <div style="margin-top:5px; font-size:0.7rem; color:#888;">
+                    Difficulty: {question['difficulty'].title()} | XP: {xp_value}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # Action bar
+    selected_count = len(st.session_state.selected_question_ids)
+    if selected_count > 0:
+        st.divider()
+        potential_xp = WritingCoachManager.calculate_xp_potential(
+            list(st.session_state.selected_question_ids)
+        )
+
+        if st.button(
+            f"📝 Start Writing ({selected_count} Questions) - Potential XP: +{potential_xp}",
+            type="primary",
+            use_container_width=True
+        ):
+            # Generate prompt with selected questions
+            selected_questions = []
+            for qid in st.session_state.selected_question_ids:
+                q = WritingCoachManager.get_question_by_id(qid)
+                if q:
+                    selected_questions.append(q)
+
+            prompt_intro = "Interview Questions Selected:\n" + "\n".join([
+                f"- {q['title']}" for q in selected_questions
+            ])
+            st.session_state.writing_text = f"{prompt_intro}\n\nMy Integrated Answer:\n"
+            st.session_state.current_writing_batch = list(st.session_state.selected_question_ids)
+            st.session_state.selected_question_ids.clear()
+            st.rerun()
+
+    st.divider()
+
+    # Writing area
+    st.subheader("✍️ Draft Your Answer")
+    writing_text = st.text_area(
+        "Write your interview response:",
+        value=st.session_state.writing_text,
+        height=250,
+        key="writing_area",
+        placeholder="Start typing your answer here...\n\nTip: Use the STAR method (Situation, Task, Action, Result) for behavioral questions."
+    )
+    st.session_state.writing_text = writing_text
+
+    # Analysis button
+    if st.button("✨ Analyze & Get Feedback", type="primary", use_container_width=True):
+        if not writing_text.strip():
+            st.warning("⚠️ Please write something first!")
+        else:
+            with st.spinner("🧠 Analyzing your writing with AI..."):
+                result = writing_coach_manager.analyze_writing(writing_text)
+                st.session_state.writing_result = result
+                st.toast("✅ Analysis complete!")
+                st.rerun()
+
+    # Display results
+    if st.session_state.writing_result:
+        result = st.session_state.writing_result
+        metrics = result.get("metrics", {})
+
+        st.divider()
+        st.subheader("📊 Analysis Results")
+
+        # Metrics display
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("CEFR Level", metrics.get("cefr_level", "N/A"))
+        with col2:
+            st.metric("Vocabulary Variety", f"{metrics.get('variety_score', 0)}/10")
+        with col3:
+            potential_xp = WritingCoachManager.calculate_xp_potential(
+                st.session_state.current_writing_batch
+            )
+            st.metric("Potential XP", f"+{potential_xp}")
+
+        # Tabbed results
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "✅ Polished Version",
+            "💡 Improvement Tips",
+            "❓ Follow-up Questions",
+            "📚 Vocabulary Expansion"
+        ])
+
+        with tab1:
+            st.success(result.get("corrected", ""))
+
+            # TTS for polished version
+            try:
+                polished_audio = TTSGenerator.generate_audio(result.get("corrected", ""))
+                if polished_audio:
+                    st.audio(polished_audio, format="audio/mp3")
+            except Exception as e:
+                st.caption(f"Audio generation unavailable: {e}")
+
+        with tab2:
+            improvements = result.get("improvements", [])
+            if improvements:
+                for improvement in improvements:
+                    st.info(f"💡 {improvement}")
+            else:
+                st.info("Great job! No major improvements needed.")
+
+            with st.expander("📄 Show Original Text"):
+                st.text(writing_text)
+
+        with tab3:
+            questions = result.get("questions", [])
+            if questions:
+                st.markdown("**Prepare for these follow-up questions:**")
+                for question in questions:
+                    st.warning(f"❓ {question}")
+            else:
+                st.info("No follow-up questions generated.")
+
+        with tab4:
+            expansion_words = result.get("expansion_words", [])
+            if expansion_words:
+                for word_data in expansion_words:
+                    word = word_data.get("word", "")
+                    ipa = word_data.get("ipa", "")
+                    replaces = word_data.get("replaces_simple_word", "")
+                    context = word_data.get("meaning_context", "")
+
+                    st.markdown(f"**{word}** `/{ipa}/`")
+                    st.caption(f"✏️ Replaces: *{replaces}* | 💼 Context: {context}")
+
+                    # TTS for vocabulary word
+                    try:
+                        word_audio = TTSGenerator.generate_audio(word)
+                        if word_audio:
+                            st.audio(word_audio, format="audio/mp3")
+                    except Exception:
+                        pass
+
+                    st.divider()
+            else:
+                st.info("No vocabulary expansion suggestions.")
+
+        # Save to database button
+        st.divider()
+        if st.button("💾 Save Analysis", use_container_width=True):
+            # Save using auth_manager's save method
+            try:
+                auth_manager.save_analysis_to_firestore(
+                    user['localId'],
+                    writing_text,
+                    result
+                )
+                st.success("✅ Analysis saved to your history!")
+            except Exception as e:
+                st.error(f"Failed to save: {e}")
+
+
 def main():
     st.set_page_config(
         page_title="Accent Coach AI",
@@ -438,6 +664,9 @@ def main():
         audio_processor=AudioProcessor,
         ipa_defs_manager=IPADefinitionsManager
     )
+
+    # Initialize WritingCoachManager for interview writing practice
+    writing_coach_manager = WritingCoachManager(groq_manager)
 
     # --- AUTH FLOW ---
     should_return, _ = session_mgr.render_login_ui()
@@ -579,7 +808,11 @@ def main():
         session_mgr.render_logout_button()
 
     # Main panel - Add tabs for different modes
-    main_tab1, main_tab2 = st.tabs(["🎯 Pronunciation Practice", "🗣️ Conversation Tutor"])
+    main_tab1, main_tab2, main_tab3 = st.tabs([
+        "🎯 Pronunciation Practice",
+        "🗣️ Conversation Tutor",
+        "✍️ Writing Coach"
+    ])
 
     with main_tab1:
         # PRONUNCIATION PRACTICE MODE
@@ -826,6 +1059,10 @@ def main():
     with main_tab2:
         # CONVERSATION TUTOR MODE
         render_conversation_tutor(user, groq_api_key)
+
+    with main_tab3:
+        # WRITING COACH MODE
+        render_writing_coach(user, writing_coach_manager)
 
 if __name__ == "__main__":
     main()
