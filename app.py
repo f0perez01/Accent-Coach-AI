@@ -527,8 +527,9 @@ def render_conversation_tutor(user: dict, groq_api_key: str):
                         st.markdown(f"🤖 **Tutor:** {turn.get('follow_up_question', '')}")
 
                         # Play audio if available (from follow_up_audio or audio_response)
-                        if turn.get('follow_up_audio'):
-                            st.audio(turn['follow_up_audio'], format="audio/mp3", key=f"audio_turn_{i}")
+                        follow_up_audio = turn.get('follow_up_audio')
+                        if follow_up_audio:
+                            st.audio(follow_up_audio, format="audio/mp3", key=f"audio_turn_{i}")
                         elif turn.get('audio_response'):
                             # Fallback: show button to generate on demand
                             if st.button("🔊 Listen", key=f"listen_turn_{i}", help="Listen to tutor's question"):
