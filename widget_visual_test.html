@@ -107,7 +107,7 @@
 
 <script>
 (function() {
-    const payload = {"word_phoneme_pairs": [{"word": "the", "phonemes": "ð ə", "start": null, "end": null}, {"word": "quick", "phonemes": "k w ˈɪ k", "start": null, "end": null}, {"word": "brown", "phonemes": "b ɹ ˈaʊ n", "start": null, "end": null}, {"word": "fox", "phonemes": "f ˈɑ k s", "start": null, "end": null}, {"word": "jumps", "phonemes": "d͡ʒ ˈʌ m p s", "start": null, "end": null}, {"word": "over", "phonemes": "ˈoʊ v ɚ", "start": null, "end": null}, {"word": "the", "phonemes": "ð ə", "start": null, "end": null}, {"word": "lazy", "phonemes": "l ˈeɪ z i", "start": null, "end": null}, {"word": "dog", "phonemes": "d ˈɔ ɡ", "start": null, "end": null}], "syllables": ["ðə", "kwɪk", "bɹaʊn", "fɑks", "d͡ʒʌmps", "oʊ", "vɚ", "ðə", "leɪ", "zi", "dɔɡ"], "audio_src": "data:audio/mp3;base64,"};
+    const payload = {"word_timings": [{"word": "the", "phonemes": "ð ə", "start": 0.0, "end": 0.5}, {"word": "quick", "phonemes": "k w ˈɪ k", "start": 0.5, "end": 1.0}, {"word": "brown", "phonemes": "b ɹ ˈaʊ n", "start": 1.0, "end": 1.5}, {"word": "fox", "phonemes": "f ˈɑ k s", "start": 1.5, "end": 2.0}, {"word": "jumps", "phonemes": "d͡ʒ ˈʌ m p s", "start": 2.0, "end": 2.5}, {"word": "over", "phonemes": "ˈoʊ v ɚ", "start": 2.5, "end": 3.0}, {"word": "the", "phonemes": "ð ə", "start": 3.0, "end": 3.5}, {"word": "lazy", "phonemes": "l ˈeɪ z i", "start": 3.5, "end": 4.0}, {"word": "dog", "phonemes": "d ˈɔ ɡ", "start": 4.0, "end": 4.5}], "syllable_timings": [{"syllable": "ðə", "start": 0.0, "end": 0.5}, {"syllable": "kwɪk", "start": 0.5, "end": 1.0}, {"syllable": "bɹaʊn", "start": 1.0, "end": 1.5}, {"syllable": "fɑks", "start": 1.5, "end": 2.0}, {"syllable": "d͡ʒʌmps", "start": 2.0, "end": 2.5}, {"syllable": "oʊ", "start": 2.5, "end": 2.8}, {"syllable": "vɚ", "start": 2.8, "end": 3.0}, {"syllable": "ðə", "start": 3.0, "end": 3.5}, {"syllable": "leɪ", "start": 3.5, "end": 3.8}, {"syllable": "zi", "start": 3.8, "end": 4.0}, {"syllable": "dɔɡ", "start": 4.0, "end": 4.5}], "audio_src": "data:audio/mp3;base64,"};
 
     function renderHorizontalViewer() {
         const wordsRow = document.getElementById('pp-words-row');
@@ -123,22 +123,25 @@
         syllRow.innerHTML = '';
 
         console.log('Rendering horizontal viewer');
-        console.log('word_phoneme_pairs:', payload.word_phoneme_pairs);
-        console.log('syllables:', payload.syllables);
+        console.log('word_timings:', payload.word_timings);
+        console.log('syllable_timings:', payload.syllable_timings);
 
-        // Render words with IPA
-        if (payload.word_phoneme_pairs && payload.word_phoneme_pairs.length) {
-            payload.word_phoneme_pairs.forEach(pair => {
+        // Render words with IPA and timing data
+        if (payload.word_timings && payload.word_timings.length) {
+            payload.word_timings.forEach((wt, i) => {
                 const chip = document.createElement('div');
                 chip.className = 'pp-chip-word';
+                chip.dataset.index = i;
+                chip.dataset.start = wt.start ?? 0;
+                chip.dataset.end = wt.end ?? 0;
 
                 const wordText = document.createElement('div');
                 wordText.className = 'pp-chip-word-text';
-                wordText.textContent = pair.word;
+                wordText.textContent = wt.word;
 
                 const ipaText = document.createElement('div');
                 ipaText.className = 'pp-chip-word-ipa';
-                ipaText.textContent = '/' + pair.phonemes + '/';
+                ipaText.textContent = '/' + wt.phonemes + '/';
 
                 chip.appendChild(wordText);
                 chip.appendChild(ipaText);
@@ -146,22 +149,82 @@
             });
         }
 
-        // Render syllables
-        if (payload.syllables && payload.syllables.length) {
-            payload.syllables.forEach(syl => {
+        // Render syllables with timing data
+        if (payload.syllable_timings && payload.syllable_timings.length) {
+            payload.syllable_timings.forEach((st, i) => {
                 const chip = document.createElement('div');
                 chip.className = 'pp-chip-syll';
-                chip.textContent = syl;
+                chip.dataset.index = i;
+                chip.dataset.start = st.start ?? 0;
+                chip.dataset.end = st.end ?? 0;
+                chip.textContent = st.syllable;
                 syllRow.appendChild(chip);
             });
         }
     }
 
+    // Simulate karaoke highlighting effect
+    function simulateKaraoke() {
+        let currentTime = 0;
+        const duration = 4.5;
+        const interval = 100; // Update every 100ms
+
+        const timer = setInterval(() => {
+            currentTime += interval / 1000;
+
+            // Highlight words
+            document.querySelectorAll('.pp-chip-word').forEach(chip => {
+                const start = parseFloat(chip.dataset.start);
+                const end = parseFloat(chip.dataset.end);
+
+                if (currentTime >= start && currentTime <= end) {
+                    chip.classList.add('active');
+                    chip.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+                } else {
+                    chip.classList.remove('active');
+                }
+            });
+
+            // Highlight syllables
+            document.querySelectorAll('.pp-chip-syll').forEach(chip => {
+                const start = parseFloat(chip.dataset.start);
+                const end = parseFloat(chip.dataset.end);
+
+                if (currentTime >= start && currentTime <= end) {
+                    chip.classList.add('active');
+                    chip.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+                } else {
+                    chip.classList.remove('active');
+                }
+            });
+
+            // Stop when done
+            if (currentTime >= duration) {
+                clearInterval(timer);
+                // Reset all
+                document.querySelectorAll('.pp-chip-word, .pp-chip-syll').forEach(chip => {
+                    chip.classList.remove('active');
+                });
+            }
+        }, interval);
+    }
+
     // Render on load
     renderHorizontalViewer();
+
+    // Add button to test karaoke effect
+    window.testKaraoke = simulateKaraoke;
 })();
 </script>
 
+</div>
+
+<div style="margin-top:20px; padding:12px; background:#ffffff; border-radius:8px; max-width:900px; margin:20px auto;">
+    <h2>Test Karaoke Effect:</h2>
+    <button onclick="testKaraoke()" style="padding:10px 20px; background:#1b6cff; color:white; border:none; border-radius:8px; cursor:pointer; font-size:16px; font-weight:600;">
+        ▶ Simulate Karaoke Highlighting
+    </button>
+    <p style="margin-top:8px; color:#666; font-size:14px;">Click to see auto-scroll and highlighting synchronized with simulated audio timing</p>
 </div>
 
 <div style="margin-top:20px; padding:12px; background:#ffffff; border-radius:8px; max-width:900px; margin:20px auto;">
@@ -171,6 +234,9 @@
         <li>✅ Syllables row should show 11 syllable chips</li>
         <li>✅ Both rows should be horizontally scrollable</li>
         <li>✅ Hover effects should work (translateY and color change)</li>
+        <li>✅ Click "Simulate Karaoke" to see synchronized highlighting and auto-scroll</li>
+        <li>✅ Active chips should turn yellow (words) or pink (syllables)</li>
+        <li>✅ Chips should auto-scroll to center as they become active</li>
     </ul>
 </div>
 

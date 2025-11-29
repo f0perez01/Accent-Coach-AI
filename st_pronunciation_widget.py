@@ -317,33 +317,17 @@ def streamlit_pronunciation_widget(
 
             // Debug: log payload data
             console.log('Rendering horizontal viewer');
-            console.log('payload.word_phoneme_pairs:', payload.word_phoneme_pairs);
-            console.log('payload.syllables:', payload.syllables);
+            console.log('payload.word_timings:', payload.word_timings);
+            console.log('payload.syllable_timings:', payload.syllable_timings);
 
-            // Render words with IPA
-            if (payload.word_phoneme_pairs && payload.word_phoneme_pairs.length) {{
-              payload.word_phoneme_pairs.forEach(pair => {{
+            // Render words with IPA and timing data
+            if (payload.word_timings && payload.word_timings.length) {{
+              payload.word_timings.forEach((wt, i) => {{
                 const chip = document.createElement('div');
                 chip.className = 'pp-chip-word';
-
-                const wordText = document.createElement('div');
-                wordText.className = 'pp-chip-word-text';
-                wordText.textContent = pair.word;
-
-                const ipaText = document.createElement('div');
-                ipaText.className = 'pp-chip-word-ipa';
-                ipaText.textContent = '/' + pair.phonemes + '/';
-
-                chip.appendChild(wordText);
-                chip.appendChild(ipaText);
-                wordsRow.appendChild(chip);
-              }});
-            }} else if (payload.word_timings && payload.word_timings.length) {{
-              // Fallback to word_timings
-              console.log('Using word_timings as fallback');
-              payload.word_timings.forEach(wt => {{
-                const chip = document.createElement('div');
-                chip.className = 'pp-chip-word';
+                chip.dataset.index = i;
+                chip.dataset.start = wt.start ?? 0;
+                chip.dataset.end = wt.end ?? 0;
 
                 const wordText = document.createElement('div');
                 wordText.className = 'pp-chip-word-text';
@@ -364,11 +348,23 @@ def streamlit_pronunciation_widget(
               wordsRow.appendChild(msg);
             }}
 
-            // Render syllables
-            if (payload.syllables && payload.syllables.length) {{
-              payload.syllables.forEach(syl => {{
+            // Render syllables with timing data
+            if (payload.syllable_timings && payload.syllable_timings.length) {{
+              payload.syllable_timings.forEach((st, i) => {{
                 const chip = document.createElement('div');
                 chip.className = 'pp-chip-syll';
+                chip.dataset.index = i;
+                chip.dataset.start = st.start ?? 0;
+                chip.dataset.end = st.end ?? 0;
+                chip.textContent = st.syllable || st;
+                syllRow.appendChild(chip);
+              }});
+            }} else if (payload.syllables && payload.syllables.length) {{
+              // Fallback to syllables without timings
+              payload.syllables.forEach((syl, i) => {{
+                const chip = document.createElement('div');
+                chip.className = 'pp-chip-syll';
+                chip.dataset.index = i;
                 chip.textContent = syl;
                 syllRow.appendChild(chip);
               }});
@@ -378,6 +374,35 @@ def streamlit_pronunciation_widget(
               msg.textContent = 'No syllable data available';
               syllRow.appendChild(msg);
             }}
+          }}
+
+          // Highlight and auto-scroll based on current time (karaoke mode)
+          function highlightByTime(currentTime) {{
+            // Highlight words
+            document.querySelectorAll('.pp-chip-word').forEach(chip => {{
+              const start = parseFloat(chip.dataset.start);
+              const end = parseFloat(chip.dataset.end);
+
+              if (currentTime >= start && currentTime <= end) {{
+                chip.classList.add('active');
+                chip.scrollIntoView({{ behavior: 'smooth', inline: 'center', block: 'nearest' }});
+              }} else {{
+                chip.classList.remove('active');
+              }}
+            }});
+
+            // Highlight syllables
+            document.querySelectorAll('.pp-chip-syll').forEach(chip => {{
+              const start = parseFloat(chip.dataset.start);
+              const end = parseFloat(chip.dataset.end);
+
+              if (currentTime >= start && currentTime <= end) {{
+                chip.classList.add('active');
+                chip.scrollIntoView({{ behavior: 'smooth', inline: 'center', block: 'nearest' }});
+              }} else {{
+                chip.classList.remove('active');
+              }}
+            }});
           }}
 
           // Simple audio playback controls
@@ -407,6 +432,11 @@ def streamlit_pronunciation_widget(
             playBtn.disabled = false;
             speedSelect.disabled = false;
           }};
+
+          // Sync highlighting with audio time (karaoke mode)
+          audio.addEventListener('timeupdate', function() {{
+            highlightByTime(audio.currentTime);
+          }});
 
           // hookup global functions for Streamlit calls
           window.ppChangeSpeed = function() {{ audio.playbackRate = parseFloat(speedSelect.value); }};
