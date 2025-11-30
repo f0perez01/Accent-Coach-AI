@@ -868,6 +868,14 @@ def main():
             else:
                 reference_text = text_option
 
+            # ✨ Clear auto-selected drill words when reference text changes
+            # This ensures auto-selection only applies immediately after an analysis
+            if 'last_reference_text' not in st.session_state:
+                st.session_state['last_reference_text'] = reference_text
+            elif st.session_state['last_reference_text'] != reference_text:
+                st.session_state['suggested_drill_words'] = []
+                st.session_state['last_reference_text'] = reference_text
+
         st.divider()
 
         # Advanced settings
@@ -995,11 +1003,15 @@ def main():
             )
 
         # 2. Render IPA Guide with Selection (returns selected words if any)
+        # ✨ Retrieve auto-suggested drill words from previous analysis
+        default_selection = st.session_state.get('suggested_drill_words', [])
+
         subset_text = ResultsVisualizer.render_ipa_guide(
             breakdown_data,
             unique_symbols,
             IPADefinitionsManager,
-            TTSGenerator
+            TTSGenerator,
+            default_selection=default_selection  # Pass error words for auto-selection
         )
 
         # Determine effective reference text
@@ -1139,6 +1151,19 @@ def main():
                         error_count=result.get('metrics', {}).get('phoneme_errors', 0)
                     )
                     auth_manager.log_activity(activity_log)
+
+                    # ✨ AUTO-SELECT ERRORS: Identify words with errors for focused drilling
+                    error_words = []
+                    for word_data in result.get('per_word_comparison', []):
+                        # Consider a word an error if:
+                        # 1. It doesn't match exactly, OR
+                        # 2. Phoneme accuracy is below 80%
+                        if not word_data.get('match', False) or word_data.get('phoneme_accuracy', 100) < 80:
+                            error_words.append(word_data['word'])
+
+                    if error_words:
+                        st.session_state['suggested_drill_words'] = error_words
+                        st.toast(f"⚠️ Se detectaron {len(error_words)} palabras para practicar.", icon="🎯")
 
                     st.rerun()
     

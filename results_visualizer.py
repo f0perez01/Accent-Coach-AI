@@ -96,7 +96,7 @@ class ResultsVisualizer:
         return fig
 
     @staticmethod
-    def render_ipa_guide(breakdown_data: List[Dict], unique_symbols: set, ipa_defs_manager, tts_generator):
+    def render_ipa_guide(breakdown_data: List[Dict], unique_symbols: set, ipa_defs_manager, tts_generator, default_selection=None):
         """
         Renderiza la guía educativa interactiva y permite seleccionar palabras para práctica enfocada.
 
@@ -105,10 +105,14 @@ class ResultsVisualizer:
             unique_symbols: Set of unique IPA symbols found in the text
             ipa_defs_manager: IPADefinitionsManager instance for symbol definitions
             tts_generator: TTSGenerator class for creating audio for selected words
+            default_selection: List of words to pre-select (e.g., error words from previous analysis)
 
         Returns:
             str or None: Cadena con palabras seleccionadas unidas por espacios, o None si no hay selección
         """
+        if default_selection is None:
+            default_selection = []
+
         selected_words = []
 
         with st.expander("📖 Guía de Pronunciación y Práctica Selectiva", expanded=False):
@@ -117,7 +121,12 @@ class ResultsVisualizer:
 
             with tab1:
                 st.markdown("#### 🕵️‍♀️ Práctica de Drilling Enfocado")
-                st.info("✅ Selecciona las palabras difíciles para practicar solo esa combinación.")
+
+                # Show info banner if auto-selected words exist
+                if default_selection:
+                    st.success(f"🎯 **Auto-Selección Activada:** Hemos seleccionado **{len(default_selection)}** palabras que necesitan más práctica basadas en tu último intento.")
+                else:
+                    st.info("✅ Selecciona las palabras difíciles para practicar solo esa combinación.")
 
                 # Headers de la tabla
                 h0, h1, h2, h3, h4 = st.columns([0.5, 1.5, 1.5, 2.5, 1.5])
@@ -136,7 +145,9 @@ class ResultsVisualizer:
 
                         with c0:
                             # Checkbox para seleccionar la palabra
-                            if st.checkbox("Select", key=f"sel_word_{i}", label_visibility="collapsed"):
+                            # ✨ Auto-check if word is in default_selection (error words)
+                            is_checked_by_default = item['word'] in default_selection
+                            if st.checkbox("Select", value=is_checked_by_default, key=f"sel_word_{i}", label_visibility="collapsed"):
                                 selected_words.append(item['word'])
 
                         with c1:
