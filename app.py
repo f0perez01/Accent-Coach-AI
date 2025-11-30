@@ -42,6 +42,7 @@ from conversation_manager import ConversationManager
 from prompt_templates import ConversationPromptTemplate, ConversationStarters
 from phoneme_processor import PhonemeProcessor
 from writing_coach_manager import WritingCoachManager
+from activity_logger import ActivityLogger
 
 try:
     from groq import Groq
@@ -338,6 +339,19 @@ def render_conversation_tutor(user: dict, groq_api_key: str):
                             user_id=user['localId']
                         )
 
+                        # Log activity for progress tracking
+                        transcript = result.get('user_transcript', '')
+                        turn_number = len(st.session_state.conversation_history)
+                        errors_count = len(result.get('errors_detected', []))
+
+                        activity_log = ActivityLogger.log_conversation_activity(
+                            user_id=user['localId'],
+                            transcript_length=len(transcript.split()),
+                            turn_number=turn_number,
+                            errors_detected=errors_count
+                        )
+                        auth_manager.log_activity(activity_log)
+
                         # Show response
                         st.success("✅ Response received!")
 
@@ -633,6 +647,16 @@ def render_writing_coach(user: dict, writing_coach_manager: WritingCoachManager)
                     writing_text,
                     result
                 )
+
+                # Log activity for progress tracking
+                activity_log = ActivityLogger.log_writing_activity(
+                    user_id=user['localId'],
+                    text_length=len(writing_text.split()),
+                    cefr_level=result.get('metrics', {}).get('cefr_level', 'N/A'),
+                    variety_score=result.get('metrics', {}).get('variety_score', 0)
+                )
+                auth_manager.log_activity(activity_log)
+
                 st.success("✅ Writing analysis saved to your history!")
             except Exception as e:
                 st.error(f"Failed to save: {e}")
@@ -942,6 +966,24 @@ def main():
                 # Step 3: Save analysis using SessionManager (encapsulates state + persistence)
                 if result:
                     session_mgr.save_analysis(user['localId'], reference_text, result)
+
+                    # Log activity for progress tracking
+                    try:
+                        import soundfile as sf
+                        audio_file = io.BytesIO(audio_data)
+                        waveform, sr = sf.read(audio_file, dtype='float32')
+                        audio_duration = len(waveform) / sr
+                    except Exception:
+                        audio_duration = 0
+
+                    activity_log = ActivityLogger.log_pronunciation_activity(
+                        user_id=user['localId'],
+                        audio_duration_seconds=audio_duration,
+                        word_count=len(reference_text.split()),
+                        error_count=result.get('metrics', {}).get('phoneme_errors', 0)
+                    )
+                    auth_manager.log_activity(activity_log)
+
                     st.rerun()
     
         # Results display

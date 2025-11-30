@@ -170,3 +170,68 @@ class AuthManager:
         except Exception as e:
             print(f"Firestore Query Error (Writing Coach): {e}")
             return []
+
+    def log_activity(self, activity_data: dict):
+        """Log user activity to Firestore collection `user_activities`.
+
+        This method stores activity logs for heatmap visualization and progress tracking.
+
+        Args:
+            activity_data: Activity log dict from ActivityLogger containing:
+                - user_id: User identifier
+                - activity_type: Type of activity (pronunciation, writing, conversation)
+                - content_length: Length of content
+                - weight: Calculated weight for progress tracking
+                - metadata: Additional activity-specific data
+                - timestamp: Activity timestamp
+                - date: Date string (YYYY-MM-DD) for heatmap grouping
+        """
+        db = self.get_db()
+        if not db:
+            return
+
+        # Convert datetime to Firestore timestamp for storage
+        doc = {**activity_data}
+        if 'timestamp' in doc and isinstance(doc['timestamp'], datetime):
+            doc['timestamp'] = firestore.SERVER_TIMESTAMP
+
+        try:
+            db.collection("user_activities").add(doc)
+        except Exception as e:
+            print(f"Firestore Error (Activity Log): {e}")
+
+    def get_user_activities(self, user_id: str, days: int = 365) -> List[dict]:
+        """Query user's activity logs for heatmap visualization.
+
+        Args:
+            user_id: User identifier
+            days: Number of days to retrieve (default 365 for yearly heatmap)
+
+        Returns:
+            List of activity log dicts sorted by timestamp descending
+        """
+        db = self.get_db()
+        if not db:
+            return []
+        try:
+            # Calculate cutoff date
+            from datetime import timedelta
+            cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+            # Query activities from the last N days
+            docs = db.collection("user_activities") \
+                .where("user_id", "==", user_id) \
+                .where("date", ">=", cutoff_date) \
+                .stream()
+
+            data = [{"id": d.id, **d.to_dict()} for d in docs]
+
+            # Sort by timestamp descending
+            data.sort(
+                key=lambda x: x.get('timestamp', datetime.min) if isinstance(x.get('timestamp'), datetime) else datetime.min,
+                reverse=True
+            )
+            return data
+        except Exception as e:
+            print(f"Firestore Query Error (Activities): {e}")
+            return []
