@@ -193,7 +193,12 @@ class AuthManager:
         # Convert datetime to Firestore timestamp for storage
         doc = {**activity_data}
         if 'timestamp' in doc and isinstance(doc['timestamp'], datetime):
-            doc['timestamp'] = firestore.SERVER_TIMESTAMP
+            # Only use SERVER_TIMESTAMP if firestore is available
+            if _HAS_FIREBASE and firestore is not None:
+                doc['timestamp'] = firestore.SERVER_TIMESTAMP
+            else:
+                # Fallback to ISO string if Firebase not available
+                doc['timestamp'] = doc['timestamp'].isoformat()
 
         try:
             db.collection("user_activities").add(doc)
