@@ -107,3 +107,66 @@ class AuthManager:
         except Exception as e:
             print(f"Firestore Query Error: {e}")
             return []
+
+    def save_writing_analysis_to_firestore(self, user_id: str, original_text: str, result: dict):
+        """Save writing coach analysis to Firestore collection `english_analyses_cv`.
+
+        This method stores interview writing practice results with complete analysis data.
+
+        Args:
+            user_id: User identifier
+            original_text: Student's original written answer
+            result: Analysis result from WritingCoachManager containing:
+                - corrected: Polished version
+                - improvements: List of improvement suggestions
+                - questions: Follow-up interview questions
+                - expansion_words: Vocabulary expansion items
+                - metrics: {cefr_level, variety_score}
+        """
+        db = self.get_db()
+        if not db:
+            return
+
+        doc = {
+            "user_id": user_id,
+            "original_text": original_text,
+            "corrected": result.get("corrected", ""),
+            "improvements": result.get("improvements", []),
+            "questions": result.get("questions", []),
+            "expansion_words": result.get("expansion_words", []),
+            "metrics": result.get("metrics", {}),
+            "timestamp": firestore.SERVER_TIMESTAMP
+        }
+        try:
+            db.collection("english_analyses_cv").add(doc)
+            try:
+                st.toast("Writing analysis saved to cloud! ☁️")
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Firestore Error (Writing Coach): {e}")
+
+    def get_user_writing_analyses(self, user_id: str) -> List[dict]:
+        """Query user's writing analyses from `english_analyses_cv` collection.
+
+        Args:
+            user_id: User identifier
+
+        Returns:
+            List of writing analysis dicts sorted by timestamp descending
+        """
+        db = self.get_db()
+        if not db:
+            return []
+        try:
+            docs = db.collection("english_analyses_cv").where("user_id", "==", user_id).stream()
+            data = [{"id": d.id, **d.to_dict()} for d in docs]
+            # Sort by timestamp descending
+            data.sort(
+                key=lambda x: x.get('timestamp', datetime.min) if isinstance(x.get('timestamp'), datetime) else datetime.min,
+                reverse=True
+            )
+            return data
+        except Exception as e:
+            print(f"Firestore Query Error (Writing Coach): {e}")
+            return []

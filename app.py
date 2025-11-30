@@ -626,14 +626,14 @@ def render_writing_coach(user: dict, writing_coach_manager: WritingCoachManager)
         # Save to database button
         st.divider()
         if st.button("💾 Save Analysis", use_container_width=True):
-            # Save using auth_manager's save method
+            # Save using auth_manager's writing-specific save method
             try:
-                auth_manager.save_analysis_to_firestore(
+                auth_manager.save_writing_analysis_to_firestore(
                     user['localId'],
                     writing_text,
                     result
                 )
-                st.success("✅ Analysis saved to your history!")
+                st.success("✅ Writing analysis saved to your history!")
             except Exception as e:
                 st.error(f"Failed to save: {e}")
 

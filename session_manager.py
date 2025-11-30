@@ -95,8 +95,6 @@ class SessionManager:
         Returns:
             (reference_text, selected_history_label)
         """
-        st.write(f"👤 **{user['email']}**")
-        st.divider()
 
         # --- HISTORY LOADER ---
         st.header("📜 History")
