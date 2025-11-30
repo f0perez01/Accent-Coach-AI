@@ -709,6 +709,53 @@ def main():
         st.write(f"👤 **{user['email']}**")
         st.divider()
 
+        # === DAILY GOAL PROGRESS ===
+        st.header("🎯 Daily Goal")
+
+        # Get today's activities
+        today_activities = auth_manager.get_today_activities(user.get('localId', ''))
+
+        # Calculate progress
+        progress_data = ActivityLogger.get_daily_score_and_progress(
+            activities_today=today_activities,
+            daily_goal=100
+        )
+
+        # Display progress bar
+        score = progress_data['accumulated_score']
+        goal = progress_data['daily_goal']
+        percentage = progress_data['progress_percentage']
+        exceeded = progress_data['exceeded']
+
+        # Color based on progress
+        if exceeded:
+            bar_color = "#FFD700"  # Gold
+        elif percentage >= 75:
+            bar_color = "#4CAF50"  # Green
+        elif percentage >= 50:
+            bar_color = "#FFA726"  # Orange
+        else:
+            bar_color = "#2196F3"  # Blue
+
+        # Progress bar with custom styling
+        st.markdown(f"""
+        <div style="background-color: #f0f2f6; border-radius: 10px; padding: 15px; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span style="font-size: 1.2rem; font-weight: bold;">{score}</span>
+                <span style="font-size: 0.9rem; color: #666;">/ {goal} points</span>
+            </div>
+            <div style="background-color: #ddd; border-radius: 5px; height: 20px; overflow: hidden;">
+                <div style="background-color: {bar_color}; width: {percentage}%; height: 100%;
+                            transition: width 0.3s ease; border-radius: 5px;"></div>
+            </div>
+            <div style="margin-top: 8px; font-size: 0.85rem; color: #555; text-align: center;">
+                {progress_data['message']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+
         # Use SessionManager to render history selector
         reference_text, selected_history = session_mgr.render_user_info_and_history(user)
 

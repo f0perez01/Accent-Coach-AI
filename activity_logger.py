@@ -225,3 +225,82 @@ class ActivityLogger:
                 daily_weights[date] = daily_weights.get(date, 0) + weight
 
         return daily_weights
+
+    @staticmethod
+    def get_daily_score_and_progress(
+        activities_today: list,
+        daily_goal: int = 100
+    ) -> Dict:
+        """
+        Calculate accumulated score for today and progress percentage towards daily goal.
+
+        Args:
+            activities_today: List of activity records for current day
+            daily_goal: Daily goal in points (default 100)
+
+        Returns:
+            Dict with:
+            - date: Today's date (YYYY-MM-DD)
+            - accumulated_score: Total points earned today
+            - daily_goal: Target goal
+            - progress_percentage: Percentage of goal completed (0-100)
+            - exceeded: Boolean indicating if goal was exceeded
+            - message: Motivational message based on progress
+        """
+        today_date_str = datetime.now().strftime("%Y-%m-%d")
+
+        # Aggregate points for today
+        daily_aggregated = ActivityLogger.aggregate_daily_activities(activities_today)
+        accumulated_score = daily_aggregated.get(today_date_str, 0)
+
+        # Calculate percentage (capped at 100 for display, but track if exceeded)
+        raw_percentage = (accumulated_score / daily_goal) * 100 if daily_goal > 0 else 0
+        progress_percentage = min(100, raw_percentage)
+        exceeded = accumulated_score > daily_goal
+
+        # Generate motivational message
+        message = ActivityLogger._get_motivational_message(
+            accumulated_score,
+            daily_goal,
+            progress_percentage
+        )
+
+        return {
+            "date": today_date_str,
+            "accumulated_score": accumulated_score,
+            "daily_goal": daily_goal,
+            "progress_percentage": round(progress_percentage, 1),
+            "exceeded": exceeded,
+            "message": message
+        }
+
+    @staticmethod
+    def _get_motivational_message(score: int, goal: int, percentage: float) -> str:
+        """
+        Generate motivational message based on current progress.
+
+        Args:
+            score: Current accumulated score
+            goal: Daily goal
+            percentage: Progress percentage
+
+        Returns:
+            Motivational message string
+        """
+        remaining = max(0, goal - score)
+
+        if score == 0:
+            return "🌟 Ready to start your learning journey today?"
+        elif percentage < 25:
+            return f"💪 Great start! {remaining} points to reach your goal!"
+        elif percentage < 50:
+            return f"🎯 You're making progress! {remaining} points to go!"
+        elif percentage < 75:
+            return f"🔥 Halfway there! Keep the momentum going!"
+        elif percentage < 100:
+            return f"⭐ Almost done! Just {remaining} points left!"
+        elif score == goal:
+            return "🎉 Perfect! You've reached your daily goal!"
+        else:
+            over = score - goal
+            return f"🌟 Amazing! You exceeded your goal by {over} points!"

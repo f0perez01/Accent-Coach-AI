@@ -240,3 +240,32 @@ class AuthManager:
         except Exception as e:
             print(f"Firestore Query Error (Activities): {e}")
             return []
+
+    def get_today_activities(self, user_id: str) -> List[dict]:
+        """Query user's activity logs for today only.
+
+        Optimized query for daily goal tracking.
+
+        Args:
+            user_id: User identifier
+
+        Returns:
+            List of activity log dicts for today
+        """
+        db = self.get_db()
+        if not db:
+            return []
+        try:
+            today_date = datetime.now().strftime("%Y-%m-%d")
+
+            # Query only today's activities
+            docs = db.collection("user_activities") \
+                .where("user_id", "==", user_id) \
+                .where("date", "==", today_date) \
+                .stream()
+
+            data = [{"id": d.id, **d.to_dict()} for d in docs]
+            return data
+        except Exception as e:
+            print(f"Firestore Query Error (Today's Activities): {e}")
+            return []
