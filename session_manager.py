@@ -15,18 +15,20 @@ class SessionManager:
     - Coordinate analysis result storage (session state + persistence)
     """
 
-    def __init__(self, login_callback, register_callback, get_history_callback, save_analysis_callback=None):
+    def __init__(self, login_callback, register_callback, get_history_callback, save_analysis_callback=None, save_registration_callback=None):
         """
         Args:
             login_callback: Function(email, password) -> dict with 'error' or 'idToken'
             register_callback: Function(email, password) -> dict with 'error' or 'idToken'
             get_history_callback: Function(user_id) -> list of history dicts
             save_analysis_callback: Optional function(user_id, reference_text, result) -> None
+            save_registration_callback: Optional function(user_id, email) -> None
         """
         self.login_callback = login_callback
         self.register_callback = register_callback
         self.get_history_callback = get_history_callback
         self.save_analysis_callback = save_analysis_callback
+        self.save_registration_callback = save_registration_callback
         self.cookie_manager = stx.CookieManager(key="auth_cookies_accent")
 
     def restore_session_from_cookie(self):
@@ -42,7 +44,7 @@ class SessionManager:
 
     def render_login_ui(self) -> Tuple[bool, Optional[dict]]:
         """Render login/register tabs and return (should_return, user_data).
-        
+
         Returns:
             (True, user_dict) if login successful
             (True, None) if auth UI shown and user should not proceed
@@ -51,17 +53,35 @@ class SessionManager:
         if st.session_state.user:
             return False, None  # User already authenticated
 
-        st.title("🔐 Accent Coach AI - Login")
+        # Header with value proposition
+        st.title("🎙️ Accent Coach AI")
+        st.markdown("""
+        **Master American English with AI-powered practice**
+
+        Perfect your pronunciation • Write like a pro • Practice real conversations
+        """)
+
+        # Feature highlights
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("**🎯 Pronunciation**\nReal-time feedback on every word")
+        with col2:
+            st.markdown("**✍️ Writing Coach**\nImprove your interview answers")
+        with col3:
+            st.markdown("**💬 Conversations**\nPractice with AI tutor")
+
+        st.divider()
+
         tab1, tab2 = st.tabs(["Login", "Register"])
 
         with tab1:
             with st.form("login_form"):
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                if st.form_submit_button("Login"):
+                email = st.text_input("Email", placeholder="your@email.com")
+                password = st.text_input("Password", type="password", placeholder="Enter your password")
+                if st.form_submit_button("Login", use_container_width=True):
                     data = self.login_callback(email, password)
                     if "error" in data:
-                        st.error(data["error"])
+                        st.error(f"Login failed: {data['error']}")
                     else:
                         st.session_state.user = data
                         self.cookie_manager.set(
@@ -69,24 +89,31 @@ class SessionManager:
                             data["idToken"],
                             expires_at=datetime.now() + timedelta(days=7)
                         )
-                        st.success("Login successful!")
+                        st.success("Welcome back! Loading your progress...")
                         st.rerun()
-            return True, None
 
         with tab2:
+            st.info("Start tracking your daily progress and build consistency!")
             with st.form("register_form"):
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                password_confirm = st.text_input("Confirm Password", type="password")
-                if st.form_submit_button("Register"):
+                email = st.text_input("Email", placeholder="your@email.com")
+                password = st.text_input("Password", type="password", placeholder="Choose a strong password")
+                password_confirm = st.text_input("Confirm Password", type="password", placeholder="Re-enter password")
+                if st.form_submit_button("Create Account", use_container_width=True):
                     if password != password_confirm:
-                        st.error("Passwords don't match!")
+                        st.error("Passwords don't match. Please try again.")
+                    elif len(password) < 6:
+                        st.error("Password must be at least 6 characters.")
                     else:
                         data = self.register_callback(email, password)
                         if "error" in data:
-                            st.error(data["error"])
+                            st.error(f"Registration failed: {data['error']}")
                         else:
-                            st.success("Registration successful! Please login.")
+                            # Save user registration to Firestore
+                            if self.save_registration_callback and "localId" in data:
+                                self.save_registration_callback(data["localId"], email)
+
+                            st.success("Account created! Please login to start your journey.")
+
         return True, None
 
     def render_user_info_and_history(self, user: dict) -> Tuple[str, str]:

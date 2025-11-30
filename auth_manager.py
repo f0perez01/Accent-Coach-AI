@@ -269,3 +269,37 @@ class AuthManager:
         except Exception as e:
             print(f"Firestore Query Error (Today's Activities): {e}")
             return []
+
+    def save_user_registration(self, user_id: str, email: str):
+        """Save new user registration to Firestore collection `users`.
+
+        This method stores user registration data for tracking and analytics.
+
+        Args:
+            user_id: User identifier from Firebase Auth
+            email: User's email address
+        """
+        db = self.get_db()
+        if not db:
+            return
+
+        doc = {
+            "user_id": user_id,
+            "email": email,
+            "registration_timestamp": firestore.SERVER_TIMESTAMP if (_HAS_FIREBASE and firestore) else datetime.now().isoformat(),
+            "registration_date": datetime.now().strftime("%Y-%m-%d"),
+            "total_activities": 0,
+            "daily_goal": 100,
+            "profile": {
+                "language_level": "unknown",
+                "learning_goals": [],
+                "preferred_practice_mode": "pronunciation"
+            }
+        }
+
+        try:
+            # Use user_id as document ID for easy lookups
+            db.collection("users").document(user_id).set(doc)
+            print(f"User registration saved: {email}")
+        except Exception as e:
+            print(f"Firestore Error (User Registration): {e}")

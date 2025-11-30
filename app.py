@@ -673,12 +673,13 @@ def main():
     init_firebase()
     init_session_state()
 
-    # Initialize SessionManager with callbacks (including save_analysis)
+    # Initialize SessionManager with callbacks (including save_analysis and registration tracking)
     session_mgr = SessionManager(
         login_user,
         register_user,
         get_user_analyses,
-        save_analysis_callback=save_analysis_to_firestore
+        save_analysis_callback=save_analysis_to_firestore,
+        save_registration_callback=auth_manager.save_user_registration
     )
 
     # Initialize AnalysisPipeline with manager dependencies
