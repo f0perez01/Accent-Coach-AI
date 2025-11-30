@@ -977,9 +977,9 @@ def main():
 
     with main_tab1:
         # PRONUNCIATION PRACTICE MODE
-        st.header("📝 Reference Text")
+        st.header("1️⃣ Estudio y Selección")
         st.markdown(f"### {reference_text}")
-        st.caption(f"Length: {len(reference_text.split())} words")
+        st.caption(f"📏 Longitud: {len(reference_text.split())} palabras")
 
         # --- STUDY PHASE ---
         # 1. Generate Data using PhonemeProcessor
@@ -988,55 +988,73 @@ def main():
             lexicon, _ = PhonemeProcessor.generate_reference_phonemes(
                 reference_text, st.session_state.config['lang']
             )
-            widget_data = PhonemeProcessor.prepare_widget_data(reference_text, lexicon)
-            phoneme_text = widget_data["phoneme_text"]
-            word_timings = widget_data["word_timings"]
-            tts_audio = TTSGenerator.generate_audio(reference_text)
 
-        # 2. Render Karaoke Player
-        if tts_audio:
-            b64_audio = base64.b64encode(tts_audio).decode()
-
-            # Generate syllables automatically from phoneme text
-            syllable_timings = None
-            try:
-                syllables = phonemes_to_syllables_with_fallback(phoneme_text)
-                if syllables:
-                    syllable_timings = syllables
-            except Exception as e:
-                st.warning(f"Could not generate syllables: {e}")
-
-            streamlit_pronunciation_widget(
-                reference_text,
-                phoneme_text,
-                b64_audio,
-                word_timings=word_timings,
-                syllable_timings=syllable_timings
-            )
-
-            # === IPA GUIDE (using new architecture) ===
-            st.markdown("---")
-
-            # Generate IPA guide data using PhonemeProcessor
+            # Generate IPA guide data FIRST (for selection UI)
             breakdown_data, unique_symbols = PhonemeProcessor.create_ipa_guide_data(
                 reference_text, st.session_state.config['lang']
             )
 
-            # Render using ResultsVisualizer (pure UI, no logic)
-            ResultsVisualizer.render_ipa_guide(breakdown_data, unique_symbols, IPADefinitionsManager)
-            # ==========================================
+        # 2. Render IPA Guide with Selection (returns selected words if any)
+        subset_text = ResultsVisualizer.render_ipa_guide(
+            breakdown_data,
+            unique_symbols,
+            IPADefinitionsManager,
+            TTSGenerator
+        )
 
+        # Determine effective reference text
+        if subset_text:
+            effective_reference_text = subset_text
+            is_subset_mode = True
+            st.success(f"🎯 **Modo Drilling Activado:** Practicando **{len(subset_text.split())}** palabras seleccionadas")
         else:
-            st.info(f"**IPA:** /{phoneme_text}/")
-            st.warning("Audio generation failed.")
-    
+            effective_reference_text = reference_text
+            is_subset_mode = False
+
         st.divider()
-    
+
+        # 3. Karaoke Player (only show if NOT in subset mode to avoid confusion)
+        if not is_subset_mode:
+            st.header("2️⃣ Entonación Completa")
+            with st.spinner("Cargando reproductor..."):
+                widget_data = PhonemeProcessor.prepare_widget_data(reference_text, lexicon)
+                phoneme_text = widget_data["phoneme_text"]
+                word_timings = widget_data["word_timings"]
+                tts_audio = TTSGenerator.generate_audio(reference_text)
+
+            if tts_audio:
+                b64_audio = base64.b64encode(tts_audio).decode()
+
+                # Generate syllables automatically from phoneme text
+                syllable_timings = None
+                try:
+                    syllables = phonemes_to_syllables_with_fallback(phoneme_text)
+                    if syllables:
+                        syllable_timings = syllables
+                except Exception as e:
+                    st.warning(f"Could not generate syllables: {e}")
+
+                streamlit_pronunciation_widget(
+                    reference_text,
+                    phoneme_text,
+                    b64_audio,
+                    word_timings=word_timings,
+                    syllable_timings=syllable_timings
+                )
+            else:
+                st.warning("Audio generation failed.")
+
+            st.divider()
+
         # Recording section
-        st.header("🎙️ Record Your Pronunciation")
-    
-        st.markdown("**Click below to record your pronunciation**")
-        st.caption(f"{reference_text}")
+        st.header("3️⃣ Grabación")
+
+        if is_subset_mode:
+            st.markdown(f"🎙️ **Graba tu pronunciación de:** `{effective_reference_text}`")
+        else:
+            st.markdown(f"🎙️ **Graba la frase completa:** {reference_text}")
+
+        st.caption("Click the button below and speak clearly")
             
         audio_bytes = st.audio_input("Record your pronunciation")
     
@@ -1077,7 +1095,7 @@ def main():
     
         # Analysis button
         if audio_bytes:
-            if st.button("🚀 Analyze Pronunciation", type="primary", use_container_width=True):
+            if st.button("🚀 Analizar Pronunciación", type="primary", use_container_width=True):
                 # Step 1: Load ASR model
                 try:
                     asr_manager.load_model(
@@ -1087,22 +1105,23 @@ def main():
                 except Exception as e:
                     st.error(f"Failed to load ASR model: {e}")
                     st.stop()
-    
+
                 # Convert audio_bytes to bytes if it's a file-like object
                 audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, 'getvalue') else audio_bytes
-    
-                # Step 2: Use AnalysisPipeline to orchestrate the entire workflow
+
+                # Step 2: Use AnalysisPipeline with EFFECTIVE reference text (subset or full)
                 result = analysis_pipeline.run(
                     audio_data,
-                    reference_text,
+                    effective_reference_text,  # ✨ Uses selected words if in subset mode
                     use_g2p=st.session_state.config['use_g2p'],
                     use_llm=st.session_state.config['use_llm'],
                     lang=st.session_state.config['lang']
                 )
 
-                # Step 3: Save analysis using SessionManager (encapsulates state + persistence)
+                # Step 3: Save analysis using SessionManager
                 if result:
-                    session_mgr.save_analysis(user['localId'], reference_text, result)
+                    # Save with effective text so history makes sense
+                    session_mgr.save_analysis(user['localId'], effective_reference_text, result)
 
                     # Log activity for progress tracking
                     try:
@@ -1116,7 +1135,7 @@ def main():
                     activity_log = ActivityLogger.log_pronunciation_activity(
                         user_id=user['localId'],
                         audio_duration_seconds=audio_duration,
-                        word_count=len(reference_text.split()),
+                        word_count=len(effective_reference_text.split()),  # ✨ Count effective words
                         error_count=result.get('metrics', {}).get('phoneme_errors', 0)
                     )
                     auth_manager.log_activity(activity_log)

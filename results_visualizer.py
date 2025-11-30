@@ -96,26 +96,32 @@ class ResultsVisualizer:
         return fig
 
     @staticmethod
-    def render_ipa_guide(breakdown_data: List[Dict], unique_symbols: set, ipa_defs_manager):
+    def render_ipa_guide(breakdown_data: List[Dict], unique_symbols: set, ipa_defs_manager, tts_generator):
         """
-        Renderiza la guía educativa con reproductores de audio individuales.
-        Usando datos preprocesados por PhonemeProcessor.
+        Renderiza la guía educativa interactiva y permite seleccionar palabras para práctica enfocada.
 
         Args:
             breakdown_data: List of dicts with {index, word, ipa, hint, audio}
             unique_symbols: Set of unique IPA symbols found in the text
             ipa_defs_manager: IPADefinitionsManager instance for symbol definitions
-        """
-        with st.expander("📖 Guía de Pronunciación Paso a Paso (Decodificador)", expanded=False):
+            tts_generator: TTSGenerator class for creating audio for selected words
 
-            tab1, tab2 = st.tabs(["🧩 Desglose por Palabra", "📚 Glosario de Símbolos"])
+        Returns:
+            str or None: Cadena con palabras seleccionadas unidas por espacios, o None si no hay selección
+        """
+        selected_words = []
+
+        with st.expander("📖 Guía de Pronunciación y Práctica Selectiva", expanded=False):
+
+            tab1, tab2 = st.tabs(["🧩 Desglose y Selección", "📚 Glosario de Símbolos"])
 
             with tab1:
-                st.markdown("#### 🕵️‍♀️ Práctica de Drilling")
-                st.markdown("Escucha y repite palabra por palabra:")
+                st.markdown("#### 🕵️‍♀️ Práctica de Drilling Enfocado")
+                st.info("✅ Selecciona las palabras difíciles para practicar solo esa combinación.")
 
-                # Headers
-                h1, h2, h3, h4 = st.columns([1.5, 1.5, 2.5, 1.5])
+                # Headers de la tabla
+                h0, h1, h2, h3, h4 = st.columns([0.5, 1.5, 1.5, 2.5, 1.5])
+                h0.markdown("**✅**")
                 h1.markdown("**Palabra**")
                 h2.markdown("**IPA**")
                 h3.markdown("**Pista**")
@@ -123,13 +129,22 @@ class ResultsVisualizer:
 
                 st.divider()
 
-                # Rows
+                # Rows con checkboxes
                 if breakdown_data:
-                    for item in breakdown_data:
-                        c1, c2, c3, c4 = st.columns([1.5, 1.5, 2.5, 1.5])
+                    for i, item in enumerate(breakdown_data):
+                        c0, c1, c2, c3, c4 = st.columns([0.5, 1.5, 1.5, 2.5, 1.5])
+
+                        with c0:
+                            # Checkbox para seleccionar la palabra
+                            if st.checkbox("Select", key=f"sel_word_{i}", label_visibility="collapsed"):
+                                selected_words.append(item['word'])
 
                         with c1:
-                            st.markdown(f"### {item['word']}")
+                            # Resaltar si está seleccionado
+                            if item['word'] in selected_words:
+                                st.markdown(f"**🎯 {item['word']}**")
+                            else:
+                                st.markdown(item['word'])
 
                         with c2:
                             st.code(item['ipa'], language=None)
@@ -144,9 +159,30 @@ class ResultsVisualizer:
                             if item['audio']:
                                 st.audio(item['audio'], format="audio/mp3")
 
-                        st.markdown("<hr style='margin: 5px 0; opacity: 0.2;'>", unsafe_allow_html=True)
+                        st.markdown("<hr style='margin: 5px 0; opacity: 0.1;'>", unsafe_allow_html=True)
                 else:
                     st.warning("No se pudo procesar el desglose fonético.")
+
+                # --- Zona de Acción para la Selección ---
+                if selected_words:
+                    st.divider()
+                    st.markdown("### 🎯 Práctica Enfocada")
+                    subset_text = " ".join(selected_words)
+
+                    st.markdown(f"**Objetivo actual:** `{subset_text}`")
+
+                    if st.button("🔊 Escuchar Secuencia Seleccionada", type="primary", use_container_width=True):
+                        try:
+                            # Generar audio al vuelo para la combinación de palabras
+                            combined_audio = tts_generator.generate_audio(subset_text)
+                            if combined_audio:
+                                st.audio(combined_audio, format="audio/mp3")
+                            else:
+                                st.warning("No se pudo generar audio para la selección")
+                        except Exception as e:
+                            st.error(f"Error generando audio: {e}")
+
+                    return subset_text
 
             with tab2:
                 st.markdown("#### 🗝️ Símbolos Clave")
@@ -157,6 +193,9 @@ class ResultsVisualizer:
                     definition = ipa_defs_manager.get_definition(sym) or "Sonido específico"
                     with cols[i % 2]:
                         st.info(f"**{sym}** : {definition}")
+
+        # Si no hay selección, retornamos None
+        return None
 
     @staticmethod
     def render_conversation_history(conversation_history: List[Dict], conversation_mode: str, tts_generator):
