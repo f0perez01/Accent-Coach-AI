@@ -303,3 +303,59 @@ class AuthManager:
             print(f"User registration saved: {email}")
         except Exception as e:
             print(f"Firestore Error (User Registration): {e}")
+
+    def save_language_query(self, user_id: str, query_data: dict):
+        """Save language query to Firestore collection `language_queries`.
+
+        This method stores chat queries about language (idioms, phrasal verbs, etc.).
+
+        Args:
+            user_id: User identifier
+            query_data: Query dict from LanguageQueryManager containing:
+                - user_query: User's question
+                - llm_response: LLM's answer
+                - timestamp: Query timestamp
+                - category: Query category (optional)
+        """
+        db = self.get_db()
+        if not db:
+            return
+
+        doc = {
+            "user_id": user_id,
+            "user_query": query_data.get("user_query", ""),
+            "llm_response": query_data.get("llm_response", ""),
+            "category": query_data.get("category", "general"),
+            "timestamp": firestore.SERVER_TIMESTAMP if (_HAS_FIREBASE and firestore) else datetime.now().isoformat()
+        }
+
+        try:
+            db.collection("language_queries").add(doc)
+        except Exception as e:
+            print(f"Firestore Error (Language Query): {e}")
+
+    def get_user_language_queries(self, user_id: str, limit: int = 50) -> List[dict]:
+        """Query user's language chat history.
+
+        Args:
+            user_id: User identifier
+            limit: Maximum number of queries to retrieve (default 50)
+
+        Returns:
+            List of query dicts sorted by timestamp descending
+        """
+        db = self.get_db()
+        if not db:
+            return []
+        try:
+            docs = db.collection("language_queries") \
+                .where("user_id", "==", user_id) \
+                .order_by("timestamp", direction=firestore.Query.DESCENDING) \
+                .limit(limit) \
+                .stream()
+
+            data = [{"id": d.id, **d.to_dict()} for d in docs]
+            return data
+        except Exception as e:
+            print(f"Firestore Query Error (Language Queries): {e}")
+            return []

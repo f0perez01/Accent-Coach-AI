@@ -43,6 +43,7 @@ from prompt_templates import ConversationPromptTemplate, ConversationStarters
 from phoneme_processor import PhonemeProcessor
 from writing_coach_manager import WritingCoachManager
 from activity_logger import ActivityLogger
+from language_query_manager import LanguageQueryManager
 
 try:
     from groq import Groq
@@ -662,6 +663,90 @@ def render_writing_coach(user: dict, writing_coach_manager: WritingCoachManager)
                 st.error(f"Failed to save: {e}")
 
 
+def render_language_chat(user: dict, language_query_manager: LanguageQueryManager):
+    """
+    Render language consultation chat interface.
+
+    Simple text-based chat for asking about idioms, phrasal verbs, expressions, etc.
+    """
+    st.header("💬 Language Assistant")
+    st.markdown("Ask me about **idioms**, **phrasal verbs**, **expressions**, or any English language questions!")
+
+    # Initialize chat history in session state
+    if 'language_chat_history' not in st.session_state:
+        st.session_state.language_chat_history = []
+
+    # Chat history display
+    st.subheader("Chat History")
+
+    if st.session_state.language_chat_history:
+        # Display chat messages
+        for idx, message in enumerate(st.session_state.language_chat_history):
+            # User message
+            with st.container():
+                st.markdown(f"**You:** {message['user_query']}")
+
+            # LLM response
+            with st.container():
+                st.markdown(f"**Assistant:** {message['llm_response']}")
+
+            st.divider()
+    else:
+        st.info("No messages yet. Ask your first question below!")
+
+    # Input area
+    st.subheader("Ask a Question")
+
+    # Check if there's a temp query from example button
+    default_value = st.session_state.get('temp_query', '')
+
+    user_query = st.text_area(
+        "Your question:",
+        value=default_value,
+        height=100,
+        placeholder="Example: What does 'beat around the bush' mean?",
+        help="Ask about idioms, phrasal verbs, expressions, grammar, or vocabulary"
+    )
+
+    # Clear temp query after displaying
+    if 'temp_query' in st.session_state:
+        del st.session_state.temp_query
+
+    col1, col2 = st.columns([3, 1])
+
+    with col1:
+        if st.button("🚀 Ask", use_container_width=True, disabled=not user_query.strip()):
+            if user_query.strip():
+                with st.spinner("Thinking..."):
+                    # Process query
+                    result = language_query_manager.process_query(
+                        user_query=user_query.strip(),
+                        conversation_history=st.session_state.language_chat_history
+                    )
+
+                    # Add to chat history
+                    st.session_state.language_chat_history.append(result)
+
+                    # Save to Firestore
+                    auth_manager.save_language_query(user['localId'], result)
+
+                    # Log activity for progress tracking
+                    activity_log = ActivityLogger.log_conversation_activity(
+                        user_id=user['localId'],
+                        transcript_length=len(user_query.split()),
+                        turn_number=len(st.session_state.language_chat_history),
+                        errors_detected=0
+                    )
+                    auth_manager.log_activity(activity_log)
+
+                    st.rerun()
+
+    with col2:
+        if st.button("🗑️ Clear", use_container_width=True):
+            st.session_state.language_chat_history = []
+            st.rerun()
+
+
 def main():
     st.set_page_config(
         page_title="Accent Coach AI",
@@ -692,6 +777,9 @@ def main():
 
     # Initialize WritingCoachManager for interview writing practice
     writing_coach_manager = WritingCoachManager(groq_manager)
+
+    # Initialize LanguageQueryManager for language consultation chat
+    language_query_manager = LanguageQueryManager(groq_manager)
 
     # --- AUTH FLOW ---
     should_return, _ = session_mgr.render_login_ui()
@@ -880,10 +968,11 @@ def main():
         session_mgr.render_logout_button()
 
     # Main panel - Add tabs for different modes
-    main_tab1, main_tab2, main_tab3 = st.tabs([
+    main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
         "🎯 Pronunciation Practice",
         "🗣️ Conversation Tutor",
-        "✍️ Writing Coach"
+        "✍️ Writing Coach",
+        "💬 Language Assistant"
     ])
 
     with main_tab1:
@@ -1153,6 +1242,10 @@ def main():
     with main_tab3:
         # WRITING COACH MODE
         render_writing_coach(user, writing_coach_manager)
+
+    with main_tab4:
+        # LANGUAGE ASSISTANT MODE
+        render_language_chat(user, language_query_manager)
 
 if __name__ == "__main__":
     main()
