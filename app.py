@@ -1002,9 +1002,9 @@ def main():
                 reference_text, st.session_state.config['lang']
             )
 
-        # 2. Render IPA Guide with Selection (returns selected words if any)
-        # ✨ Retrieve auto-suggested drill words from previous analysis
-        default_selection = st.session_state.get('suggested_drill_words', [])
+            # 2. Render IPA Guide with Selection (returns selected words if any)
+            # ✨ Retrieve auto-suggested drill words from previous analysis
+            default_selection = st.session_state.get('suggested_drill_words', [])
 
         subset_text = ResultsVisualizer.render_ipa_guide(
             breakdown_data,
