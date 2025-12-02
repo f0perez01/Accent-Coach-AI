@@ -46,3 +46,5 @@ huggingface/
 dist/
 build/
 *.egg-info/
+
+documents
