@@ -1007,10 +1007,10 @@ def main():
             default_selection = st.session_state.get('suggested_drill_words', [])
 
         subset_text = ResultsVisualizer.render_ipa_guide(
-            breakdown_data,
-            unique_symbols,
-            IPADefinitionsManager,
-            TTSGenerator,
+            breakdown_data=breakdown_data,
+            unique_symbols=unique_symbols,
+            ipa_defs_manager=IPADefinitionsManager,
+            tts_generator=TTSGenerator,
             default_selection=default_selection  # Pass error words for auto-selection
         )
 
