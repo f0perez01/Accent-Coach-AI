@@ -400,32 +400,3 @@ def phonemes_to_syllables_with_fallback(
         # If syllabification fails, return empty list (caller should handle fallback)
         print(f"Warning: syllabification failed: {e}")
         return []
-
-
-# ============================================================================
-# EXAMPLE USAGE (for testing)
-# ============================================================================
-
-if __name__ == "__main__":
-    # Example 1: Simple
-    text1 = "h aʊ m ʌ t͡ʃ"
-    print(f"Input: {text1}")
-    phonemes1 = normalize_phoneme_sequence(text1)
-    print(f"Normalized: {phonemes1}")
-    syllables1 = syllabify_phonemes(phonemes1)
-    print(f"Syllables: {syllables1}\n")
-
-    # Example 2: With timings
-    text2 = "h aʊ m ʌ t͡ʃ"
-    phonemes2 = normalize_phoneme_sequence(text2)
-    timings2 = [
-        {"phoneme": "h", "start": 0.00, "end": 0.10},
-        {"phoneme": "aʊ", "start": 0.10, "end": 0.35},
-        {"phoneme": "m", "start": 0.35, "end": 0.45},
-        {"phoneme": "ʌ", "start": 0.45, "end": 0.65},
-        {"phoneme": "t͡ʃ", "start": 0.65, "end": 0.90},
-    ]
-    syllables2 = syllabify_phonemes(phonemes2, timings2)
-    print(f"With timings:")
-    for s in syllables2:
-        print(f"  {s}")
