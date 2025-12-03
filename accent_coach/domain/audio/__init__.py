@@ -10,7 +10,16 @@ Responsibilities:
 Dependencies: NONE (pure processing)
 """
 
-from .service import AudioService
+from .service import AudioService, AudioValidationError
 from .models import AudioConfig, ProcessedAudio
+from .audio_processor import AudioProcessor, TTSGenerator, AudioValidator
 
-__all__ = ["AudioService", "AudioConfig", "ProcessedAudio"]
+__all__ = [
+    "AudioService",
+    "AudioValidationError",
+    "AudioConfig",
+    "ProcessedAudio",
+    "AudioProcessor",
+    "TTSGenerator",
+    "AudioValidator",
+]

@@ -4,6 +4,12 @@ Audio Processing Service (BC1)
 
 from typing import Optional
 from .models import AudioConfig, ProcessedAudio
+from .audio_processor import AudioProcessor, TTSGenerator, AudioValidator
+
+
+class AudioValidationError(Exception):
+    """Raised when audio validation fails."""
+    pass
 
 
 class AudioService:
@@ -17,14 +23,14 @@ class AudioService:
     Dependencies: NONE (pure processing)
     """
 
-    def __init__(self, processor, tts_generator):
+    def __init__(self, processor: AudioProcessor = None, tts_generator: TTSGenerator = None):
         """
         Args:
-            processor: AudioProcessor instance
-            tts_generator: TTSGenerator instance
+            processor: AudioProcessor instance (defaults to AudioProcessor)
+            tts_generator: TTSGenerator instance (defaults to TTSGenerator)
         """
-        self._processor = processor
-        self._tts = tts_generator
+        self._processor = processor or AudioProcessor()
+        self._tts = tts_generator or TTSGenerator()
 
     def process_recording(
         self,
@@ -44,24 +50,38 @@ class AudioService:
         Raises:
             AudioValidationError: If audio is invalid
         """
-        # TODO: Implementation
-        # 1. Validate audio
-        # 2. Load audio
-        # 3. Apply enhancements (VAD, denoising)
-        # 4. Resample if needed
-        # 5. Return ProcessedAudio
-        raise NotImplementedError("To be implemented in Sprint 2")
+        # 1. Load audio
+        waveform, sr = self._processor.load_from_bytes(audio_bytes, target_sr=config.sample_rate)
 
-    def generate_tts(self, text: str, lang: str = 'en-us') -> bytes:
+        # 2. Validate audio
+        is_valid, error_message = AudioValidator.validate_audio_data(waveform, sr)
+        if not is_valid:
+            raise AudioValidationError(f"Invalid audio: {error_message}")
+
+        # 3. Apply normalization if configured
+        if config.normalize:
+            waveform = self._processor.normalize_audio(waveform)
+
+        # 4. Return ProcessedAudio
+        return ProcessedAudio(
+            waveform=waveform,
+            sample_rate=sr,
+            duration_seconds=len(waveform) / sr
+        )
+
+    def generate_tts(self, text: str, lang: str = 'en', slow: bool = False) -> Optional[bytes]:
         """
         Generate speech audio from text.
 
         Args:
             text: Text to convert to speech
-            lang: Language code
+            lang: Language code (default: 'en')
+            slow: Whether to generate slow speech for practice
 
         Returns:
-            Audio bytes (MP3 format)
+            Audio bytes (MP3 format), or None on failure
         """
-        # TODO: Implementation
-        raise NotImplementedError("To be implemented in Sprint 2")
+        if slow:
+            return self._tts.generate_slow_audio(text, lang)
+        else:
+            return self._tts.generate_audio(text, lang)
