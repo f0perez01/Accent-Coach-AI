@@ -195,3 +195,152 @@ class TestLLMServiceDomainMethods:
         # Should build a prompt mentioning the errors
         prompt = call_args[0][0]
         assert "hello world" in prompt
+
+    def test_generate_conversation_feedback(self):
+        """Test conversation feedback generation."""
+        # Given
+        service = GroqLLMService(api_key="test_api_key")
+
+        # Mock generate method
+        service.generate = Mock(return_value=LLMResponse(
+            text="[CORRECTION]: Great! [FOLLOW UP QUESTION]: What else?",
+            tokens_used=100,
+            cost_usd=0.002
+        ))
+
+        # When
+        feedback = service.generate_conversation_feedback(
+            system_prompt="You are a tutor",
+            user_message="I go yesterday",
+            model="llama-3.1-70b-versatile",
+            temperature=0.3,
+            max_tokens=500
+        )
+
+        # Then
+        assert "[CORRECTION]" in feedback
+        assert "[FOLLOW UP QUESTION]" in feedback
+
+        # Verify generate was called with proper config
+        service.generate.assert_called_once()
+
+    def test_generate_writing_feedback(self):
+        """Test writing evaluation feedback generation."""
+        # Given
+        service = GroqLLMService(api_key="test_api_key")
+
+        # Mock generate method with JSON response
+        service.generate = Mock(return_value=LLMResponse(
+            text='{"metrics": {"cefr_level": "B2", "variety_score": 7}, "corrected": "Professional version"}',
+            tokens_used=200,
+            cost_usd=0.003
+        ))
+
+        # When
+        feedback = service.generate_writing_feedback(
+            text="I have experience in software development.",
+            model="llama-3.1-8b-instant",
+            temperature=0.1
+        )
+
+        # Then
+        assert "cefr_level" in feedback
+        assert "B2" in feedback
+
+        # Verify prompt includes job interview context
+        service.generate.assert_called_once()
+        call_args = service.generate.call_args
+        prompt = call_args[0][0]
+        assert "Tech Recruiter" in prompt
+        assert "interview" in prompt.lower()
+
+    def test_generate_teacher_feedback(self):
+        """Test teacher-style feedback generation."""
+        # Given
+        service = GroqLLMService(api_key="test_api_key")
+
+        # Mock generate method
+        service.generate = Mock(return_value=LLMResponse(
+            text="Great job! Keep practicing your grammar.",
+            tokens_used=80,
+            cost_usd=0.002
+        ))
+
+        analysis_data = '{"metrics": {"cefr_level": "B1"}}'
+        original_text = "I like programming"
+
+        # When
+        feedback = service.generate_teacher_feedback(
+            analysis_data=analysis_data,
+            original_text=original_text,
+            model="llama-3.1-8b-instant",
+            temperature=0.4
+        )
+
+        # Then
+        assert "Great job" in feedback
+
+        # Verify prompt includes warm tone instructions
+        service.generate.assert_called_once()
+        call_args = service.generate.call_args
+        prompt = call_args[0][0]
+        assert "friendly" in prompt.lower() or "warm" in prompt.lower()
+
+    def test_generate_language_query_response(self):
+        """Test language query response generation."""
+        # Given
+        service = GroqLLMService(api_key="test_api_key")
+
+        # Mock generate method
+        service.generate = Mock(return_value=LLMResponse(
+            text="This expression is commonly used in American English. Example: 'Let's touch base next week.'",
+            tokens_used=120,
+            cost_usd=0.003
+        ))
+
+        conversation_history = [
+            {"user_query": "What does 'touch base' mean?", "llm_response": "It means to contact someone briefly."}
+        ]
+
+        # When
+        response = service.generate_language_query_response(
+            user_query="Is 'touch base' commonly used?",
+            conversation_history=conversation_history,
+            model="llama-3.1-8b-instant",
+            temperature=0.25
+        )
+
+        # Then
+        assert "commonly used" in response
+
+        # Verify prompt includes naturalness evaluation instructions
+        service.generate.assert_called_once()
+        call_args = service.generate.call_args
+        prompt = call_args[0][0]
+        assert "natural" in prompt.lower()
+        assert "American speaker" in prompt
+
+    def test_generate_language_query_without_history(self):
+        """Test language query without conversation history."""
+        # Given
+        service = GroqLLMService(api_key="test_api_key")
+
+        # Mock generate method
+        service.generate = Mock(return_value=LLMResponse(
+            text="This is a natural expression.",
+            tokens_used=60,
+            cost_usd=0.001
+        ))
+
+        # When
+        response = service.generate_language_query_response(
+            user_query="Is 'kick the bucket' common?",
+            conversation_history=[],
+            model="llama-3.1-8b-instant"
+        )
+
+        # Then
+        assert response == "This is a natural expression."
+
+        # Should still work without history
+        service.generate.assert_called_once()
