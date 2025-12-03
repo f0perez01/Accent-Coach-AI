@@ -2,8 +2,49 @@
 Writing Evaluation domain models
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Optional
+from enum import Enum
+
+
+class QuestionDifficulty(Enum):
+    """Interview question difficulty levels."""
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
+
+class QuestionCategory(Enum):
+    """Interview question categories."""
+    BEHAVIORAL = "behavioral"
+    TECHNICAL = "technical"
+    REMOTE_WORK = "remote_work"
+
+
+@dataclass
+class InterviewQuestion:
+    """Interview practice question."""
+    text: str
+    category: QuestionCategory
+    difficulty: QuestionDifficulty
+
+    def get_xp_value(self) -> int:
+        """Calculate XP points for this question."""
+        xp_map = {
+            QuestionDifficulty.EASY: 10,
+            QuestionDifficulty.MEDIUM: 20,
+            QuestionDifficulty.HARD: 40,
+        }
+        return xp_map[self.difficulty]
+
+
+@dataclass
+class WritingConfig:
+    """Configuration for writing evaluation."""
+    model: str = "llama-3.1-8b-instant"
+    temperature: float = 0.1
+    max_tokens: int = 800
+    generate_teacher_feedback: bool = True
 
 
 @dataclass

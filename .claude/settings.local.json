@@ -15,7 +15,8 @@
       "Bash(dir:*)",
       "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\python.exe\" -m pytest tests/unit/test_conversation_service.py -v)",
       "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\python.exe\" -m pytest tests/unit/test_conversation_service.py -v --tb=short)",
-      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\python.exe\" -m pytest tests/unit/ -v --tb=line)"
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\python.exe\" -m pytest tests/unit/ -v --tb=line)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\python.exe\" -m pytest tests/unit/test_writing_service.py -v)"
     ],
     "deny": [],
     "ask": []

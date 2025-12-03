@@ -10,7 +10,24 @@ Responsibilities:
 Dependencies: BC6 (LLM), BC1 (Audio for TTS)
 """
 
-from .service import WritingCoachService
-from .models import WritingEvaluation, CEFRMetrics
+from .service import WritingService
+from .models import (
+    WritingEvaluation,
+    CEFRMetrics,
+    VocabularyExpansion,
+    WritingConfig,
+    InterviewQuestion,
+    QuestionCategory,
+    QuestionDifficulty,
+)
 
-__all__ = ["WritingCoachService", "WritingEvaluation", "CEFRMetrics"]
+__all__ = [
+    "WritingService",
+    "WritingEvaluation",
+    "CEFRMetrics",
+    "VocabularyExpansion",
+    "WritingConfig",
+    "InterviewQuestion",
+    "QuestionCategory",
+    "QuestionDifficulty",
+]
