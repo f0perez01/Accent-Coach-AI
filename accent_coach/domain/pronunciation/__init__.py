@@ -10,7 +10,12 @@ Responsibilities:
 Dependencies: BC1 (Audio), BC2 (Transcription), BC3 (Phonetic), BC6 (LLM)
 """
 
-from .service import PronunciationPracticeService
+from .service import PronunciationPracticeService, PronunciationError
 from .models import PracticeConfig, PracticeResult
 
-__all__ = ["PronunciationPracticeService", "PracticeConfig", "PracticeResult"]
+__all__ = [
+    "PronunciationPracticeService",
+    "PronunciationError",
+    "PracticeConfig",
+    "PracticeResult",
+]

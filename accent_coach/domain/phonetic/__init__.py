@@ -13,10 +13,22 @@ Dependencies: NONE (pure logic)
 
 from .service import PhoneticAnalysisService
 from .models import PronunciationAnalysis, PronunciationMetrics, WordComparison
+from .analyzer import (
+    G2PConverter,
+    PhonemeTokenizer,
+    PhonemeAligner,
+    SequenceAligner,
+    MetricsCalculator,
+)
 
 __all__ = [
     "PhoneticAnalysisService",
     "PronunciationAnalysis",
     "PronunciationMetrics",
     "WordComparison",
+    "G2PConverter",
+    "PhonemeTokenizer",
+    "PhonemeAligner",
+    "SequenceAligner",
+    "MetricsCalculator",
 ]
