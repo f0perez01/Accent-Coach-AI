@@ -62,9 +62,24 @@ class TestPronunciationPracticeService:
                 deletions=0
             ),
             per_word_comparison=[
-                WordComparison(word="hello", match=True, details=""),
-                WordComparison(word="world", match=True, details="")
-            ]
+                WordComparison(
+                    word="hello",
+                    ref_phonemes="həˈloʊ",
+                    rec_phonemes="həˈloʊ",
+                    match=True,
+                    phoneme_accuracy=1.0
+                ),
+                WordComparison(
+                    word="world",
+                    ref_phonemes="ˈwɝld",
+                    rec_phonemes="ˈwɝld",
+                    match=True,
+                    phoneme_accuracy=1.0
+                )
+            ],
+            ipa_breakdown=[],
+            unique_symbols=set(),
+            suggested_drill_words=[]
         )
 
         # Mock LLM feedback
@@ -127,12 +142,25 @@ class TestPronunciationPracticeService:
 
         mock_phonetic.analyze_pronunciation.return_value = PronunciationAnalysis(
             metrics=PronunciationMetrics(
-                phoneme_accuracy=0.85,
                 word_accuracy=1.0,
-                total_phonemes=4,
-                correct_phonemes=3
+                phoneme_accuracy=0.85,
+                phoneme_error_rate=0.15,
+                correct_words=1,
+                total_words=1,
+                substitutions=1,
+                insertions=0,
+                deletions=0
             ),
-            per_word_comparison=[WordComparison(word="test", match=True, details="")]
+            per_word_comparison=[WordComparison(
+                word="test",
+                ref_phonemes="tɛst",
+                rec_phonemes="tɛst",
+                match=True,
+                phoneme_accuracy=0.85
+            )],
+            ipa_breakdown=[],
+            unique_symbols=set(),
+            suggested_drill_words=[]
         )
 
         service = PronunciationPracticeService(
@@ -180,12 +208,19 @@ class TestPronunciationPracticeService:
 
         mock_phonetic.analyze_pronunciation.return_value = PronunciationAnalysis(
             metrics=PronunciationMetrics(
-                phoneme_accuracy=0.8,
                 word_accuracy=1.0,
-                total_phonemes=4,
-                correct_phonemes=3
+                phoneme_accuracy=0.8,
+                phoneme_error_rate=0.2,
+                correct_words=1,
+                total_words=1,
+                substitutions=1,
+                insertions=0,
+                deletions=0
             ),
-            per_word_comparison=[]
+            per_word_comparison=[],
+            ipa_breakdown=[],
+            unique_symbols=set(),
+            suggested_drill_words=[]
         )
 
         service = PronunciationPracticeService(
@@ -326,12 +361,19 @@ class TestPronunciationPracticeService:
 
         mock_phonetic.analyze_pronunciation.return_value = PronunciationAnalysis(
             metrics=PronunciationMetrics(
-                phoneme_accuracy=0.9,
                 word_accuracy=1.0,
-                total_phonemes=4,
-                correct_phonemes=4
+                phoneme_accuracy=0.9,
+                phoneme_error_rate=0.1,
+                correct_words=1,
+                total_words=1,
+                substitutions=0,
+                insertions=0,
+                deletions=0
             ),
-            per_word_comparison=[]
+            per_word_comparison=[],
+            ipa_breakdown=[],
+            unique_symbols=set(),
+            suggested_drill_words=[]
         )
 
         # LLM fails
@@ -379,12 +421,19 @@ class TestPronunciationPracticeService:
 
         mock_phonetic.analyze_pronunciation.return_value = PronunciationAnalysis(
             metrics=PronunciationMetrics(
-                phoneme_accuracy=0.9,
                 word_accuracy=1.0,
-                total_phonemes=4,
-                correct_phonemes=4
+                phoneme_accuracy=0.9,
+                phoneme_error_rate=0.1,
+                correct_words=1,
+                total_words=1,
+                substitutions=0,
+                insertions=0,
+                deletions=0
             ),
-            per_word_comparison=[]
+            per_word_comparison=[],
+            ipa_breakdown=[],
+            unique_symbols=set(),
+            suggested_drill_words=[]
         )
 
         service = PronunciationPracticeService(
@@ -428,12 +477,19 @@ class TestPronunciationPracticeService:
 
         mock_phonetic.analyze_pronunciation.return_value = PronunciationAnalysis(
             metrics=PronunciationMetrics(
-                phoneme_accuracy=0.9,
                 word_accuracy=1.0,
-                total_phonemes=4,
-                correct_phonemes=4
+                phoneme_accuracy=0.9,
+                phoneme_error_rate=0.1,
+                correct_words=1,
+                total_words=1,
+                substitutions=0,
+                insertions=0,
+                deletions=0
             ),
-            per_word_comparison=[]
+            per_word_comparison=[],
+            ipa_breakdown=[],
+            unique_symbols=set(),
+            suggested_drill_words=[]
         )
 
         service = PronunciationPracticeService(
@@ -501,15 +557,34 @@ class TestPronunciationServiceIntegration:
 
         mock_phonetic.analyze_pronunciation.return_value = PronunciationAnalysis(
             metrics=PronunciationMetrics(
-                phoneme_accuracy=0.7,
                 word_accuracy=0.5,  # 1 out of 2 words correct
-                total_phonemes=10,
-                correct_phonemes=7
+                phoneme_accuracy=0.7,
+                phoneme_error_rate=0.3,
+                correct_words=1,
+                total_words=2,
+                substitutions=3,
+                insertions=0,
+                deletions=0
             ),
             per_word_comparison=[
-                WordComparison(word="hello", match=True, details="Perfect!"),
-                WordComparison(word="world", match=False, details="Pronounced as 'word'")
-            ]
+                WordComparison(
+                    word="hello",
+                    ref_phonemes="həˈloʊ",
+                    rec_phonemes="həˈloʊ",
+                    match=True,
+                    phoneme_accuracy=1.0
+                ),
+                WordComparison(
+                    word="world",
+                    ref_phonemes="ˈwɝld",
+                    rec_phonemes="wɝd",
+                    match=False,
+                    phoneme_accuracy=0.5
+                )
+            ],
+            ipa_breakdown=[],
+            unique_symbols=set(),
+            suggested_drill_words=[]
         )
 
         mock_llm.generate_pronunciation_feedback.return_value = (

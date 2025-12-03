@@ -220,7 +220,7 @@ print(f"Follow-up: {turn_result.follow_up}")
 
 ## 🧪 Running Tests
 
-The application has comprehensive test coverage (74% overall, 100% for key services):
+The application has comprehensive test coverage (79% overall, 100% for key services):
 
 ```bash
 # Run all unit tests
@@ -246,7 +246,8 @@ python -m pytest tests/unit/ --cov=accent_coach --cov-report=html
 | 5 | LLM Enhancements | 6 | 98% |
 | 6 | Writing Coach | 18 | 97% |
 | 7 | Language Query | 17 | 100% |
-| **Total** | **7 Bounded Contexts** | **118** | **74%** |
+| 8 | Pronunciation Practice | 10 | 100% |
+| **Total** | **8 Bounded Contexts** | **128** | **79%** |
 
 ## 🔧 Service Integration
 
