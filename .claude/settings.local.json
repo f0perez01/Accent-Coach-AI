@@ -12,7 +12,10 @@
       "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\pip.exe\" install -r requirements.txt)",
       "Bash(python -m py_compile:*)",
       "Bash(python:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\python.exe\" -m pytest tests/unit/test_conversation_service.py -v)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\python.exe\" -m pytest tests/unit/test_conversation_service.py -v --tb=short)",
+      "Bash(\"C:\\Users\\f0per\\f28\\Accent-Coach-AI\\venv\\Scripts\\python.exe\" -m pytest tests/unit/ -v --tb=line)"
     ],
     "deny": [],
     "ask": []

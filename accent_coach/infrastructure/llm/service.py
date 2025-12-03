@@ -58,6 +58,38 @@ class LLMService(ABC):
         response = self.generate(prompt, {}, config)
         return response.text
 
+    def generate_conversation_feedback(
+        self,
+        system_prompt: str,
+        user_message: str,
+        model: str,
+        temperature: float = 0.3,
+        max_tokens: int = 500,
+    ) -> str:
+        """
+        Domain-specific: Generate conversation tutor feedback.
+
+        Args:
+            system_prompt: System instructions for the LLM
+            user_message: User's message to analyze
+            model: LLM model to use
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Feedback text with corrections and follow-up
+        """
+        # Build combined prompt
+        combined_prompt = f"{system_prompt}\n\n{user_message}"
+
+        config = LLMConfig(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        response = self.generate(combined_prompt, {}, config)
+        return response.text
+
     def _build_pronunciation_prompt(
         self, reference_text: str, per_word_comparison: List[Dict]
     ) -> str:
