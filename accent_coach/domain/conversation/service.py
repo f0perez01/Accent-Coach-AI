@@ -63,7 +63,7 @@ class ConversationService:
         self._llm = llm_service
         self._repo = repository
 
-    def process_turn(
+    def process_audio_turn(
         self,
         audio_bytes: bytes,
         session: ConversationSession,
@@ -268,20 +268,68 @@ class ConversationService:
             started_at=datetime.now(),
         )
 
-        # Save to repository if available
-        if self._repo:
-            self._repo.create_session(session)
+        # Session is created in-memory; turns will be saved via save_turn()
 
         return session
 
-    def close_session(self, session: ConversationSession):
+    def close_session(self, session_id: str):
         """
         Mark a session as completed.
 
         Args:
-            session: Session to close
+            session_id: ID of session to close
         """
-        session.status = "completed"
+        # Session closing handled in-memory by UI
+        # Repository persistence not needed for simple in-memory sessions
+        pass
 
+    def process_turn(
+        self,
+        session_id: str,
+        user_transcript: str,
+        user_id: str,
+    ):
+        """
+        Process a text-based conversation turn (for UI).
+
+        Args:
+            session_id: Session identifier
+            user_transcript: User's text input
+            user_id: User identifier
+
+        Returns:
+            TurnResult with correction and follow-up
+        """
+        # Get session history from repository
+        conversation_history = []
         if self._repo:
-            self._repo.update_session(session)
+            history_turns = self._repo.get_session_history(session_id)
+            conversation_history = [
+                {"user": turn.user_transcript if hasattr(turn, 'user_transcript') else str(turn),
+                 "assistant": turn.follow_up if hasattr(turn, 'follow_up') else ""}
+                for turn in history_turns[-5:]  # Last 5 turns for context
+            ]
+
+        # Create config (use defaults for text-based conversation)
+        config = ConversationConfig()
+
+        # Generate feedback
+        tutor_response = self._generate_feedback(
+            user_transcript=user_transcript,
+            conversation_history=conversation_history,
+            config=config,
+        )
+
+        # Create turn result
+        from .models import TurnResult
+        turn_result = TurnResult(
+            user_transcript=user_transcript,
+            correction=tutor_response.correction if config.mode.value == "practice" else None,
+            follow_up=tutor_response.follow_up_question or tutor_response.assistant_response,
+        )
+
+        # Save turn to repository
+        if self._repo:
+            self._repo.save_turn(session_id, turn_result)
+
+        return turn_result

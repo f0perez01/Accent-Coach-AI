@@ -271,7 +271,7 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
             config = ConversationConfig(
                 mode=ConversationMode(mode),
                 topic=topic,
-                proficiency_level=proficiency
+                user_level=proficiency
             )
 
             session = conversation_service.create_session(
@@ -299,7 +299,10 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
         if not st.session_state.conversation_turns:
             from accent_coach.domain.conversation.starters import ConversationStarters
 
-            starter = ConversationStarters.get_starter_by_topic(session.config.topic)
+            starter = ConversationStarters.get_starter(
+                topic=session.config.topic,
+                level=session.config.user_level or "B1-B2"
+            )
             st.info(f"**AI Tutor**: {starter}")
 
         # Display conversation history
@@ -532,15 +535,16 @@ def render_writing_coach_tab(user: dict, writing_service: WritingService):
 
             # Display in columns
             cols = st.columns(3)
-            for i, word_pair in enumerate(evaluation.expansion_words):
+            for i, vocab in enumerate(evaluation.expansion_words):
                 col_idx = i % 3
                 with cols[col_idx]:
-                    st.markdown(f"**{word_pair['original']}** → *{word_pair['alternative']}*")
+                    st.markdown(f"**{vocab.replaces_simple_word}** → *{vocab.word}*")
+                    st.caption(f"/{vocab.ipa}/ - {vocab.meaning_context}")
 
         # Follow-up questions
-        if evaluation.follow_up_questions:
+        if evaluation.questions:
             st.subheader("🤔 Follow-up Questions")
-            for i, question in enumerate(evaluation.follow_up_questions, 1):
+            for i, question in enumerate(evaluation.questions, 1):
                 st.markdown(f"{i}. {question}")
 
         # Generate teacher feedback
