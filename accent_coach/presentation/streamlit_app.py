@@ -74,6 +74,18 @@ def initialize_services():
     # Initialize infrastructure services
     llm_service = GroqLLMService(api_key=groq_api_key) if groq_api_key else None
 
+    # Initialize ASR Manager for transcription
+    from accent_coach.domain.transcription.asr_manager import ASRModelManager
+    
+    MODEL_OPTIONS = {
+        "Wav2Vec2 Base (Fast, Cloud-Friendly)": "facebook/wav2vec2-base-960h",
+        "Wav2Vec2 Large (Better Accuracy, Needs More RAM)": "facebook/wav2vec2-large-960h",
+        "Wav2Vec2 XLSR (Phonetic)": "mrrubino/wav2vec2-large-xlsr-53-l2-arctic-phoneme",
+    }
+    DEFAULT_MODEL = "facebook/wav2vec2-base-960h"
+    
+    asr_manager = ASRModelManager(DEFAULT_MODEL, MODEL_OPTIONS)
+
     # Initialize repositories (using in-memory for now)
     pronunciation_repo = InMemoryPronunciationRepository()
     conversation_repo = InMemoryConversationRepository()
@@ -81,7 +93,7 @@ def initialize_services():
 
     # Initialize domain services with dependency injection
     audio_service = AudioService()
-    transcription_service = TranscriptionService()
+    transcription_service = TranscriptionService(asr_manager=asr_manager)
     phonetic_service = PhoneticAnalysisService()
 
     pronunciation_service = PronunciationPracticeService(
@@ -202,10 +214,10 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
             st.success("✅ Audio file loaded!")
 
     else:  # Record with Microphone
-        st.info("🎤 Browser-based audio recording (requires extra-streamlit-components)")
+        st.info("🎤 Browser-based audio recording")
 
         try:
-            from extra_streamlit_components import CookieManager, audio_recorder
+            from audio_recorder_streamlit import audio_recorder
 
             audio_bytes = audio_recorder(
                 text="Click to record",
@@ -221,7 +233,7 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
 
         except ImportError:
             st.warning("⚠️ Audio recorder not available. Please use 'Upload Audio File' method.")
-            st.info("To enable microphone recording, install: pip install extra-streamlit-components")
+            st.info("To enable microphone recording, install: pip install audio-recorder-streamlit")
 
     st.divider()
 

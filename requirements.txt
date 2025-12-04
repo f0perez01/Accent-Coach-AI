@@ -35,6 +35,7 @@ firebase-admin>=6.2.0
 
 # --- Components ---
 extra-streamlit-components>=0.1.60
+audio-recorder-streamlit>=0.0.10
 
 # --- Audio Enhancement (Optional but recommended) ---
 noisereduce>=2.0.0  # Advanced noise reduction
