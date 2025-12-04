@@ -8,6 +8,7 @@ Refactored from monolithic app.py (1,295 lines → ~400 lines target)
 """
 
 import os
+from datetime import datetime
 import streamlit as st
 
 # Domain Services
@@ -128,6 +129,281 @@ def initialize_services():
             'writing': writing_repo,
         }
     }
+
+
+def render_pronunciation_practice_tab(user: dict, pronunciation_service: PronunciationPracticeService):
+    """
+    Render Pronunciation Practice tab (BC4).
+
+    Audio-based pronunciation practice with phonetic analysis.
+    """
+    st.header("🎤 Pronunciation Practice")
+    st.markdown("Record yourself speaking and get instant feedback on pronunciation, phonetics, and word accuracy")
+
+    # Initialize session state
+    if 'pronunciation_result' not in st.session_state:
+        st.session_state.pronunciation_result = None
+    if 'pronunciation_history' not in st.session_state:
+        st.session_state.pronunciation_history = []
+
+    # Section 1: Reference Text Input
+    st.subheader("📝 Choose Text to Practice")
+
+    # Preset sentences
+    presets = [
+        "The quick brown fox jumps over the lazy dog",
+        "She sells seashells by the seashore",
+        "How much wood would a woodchuck chuck if a woodchuck could chuck wood",
+        "Peter Piper picked a peck of pickled peppers",
+        "I scream, you scream, we all scream for ice cream",
+        "Custom text..."
+    ]
+
+    preset_choice = st.selectbox(
+        "Select a sentence or enter custom text:",
+        options=presets,
+        help="Choose a preset sentence or select 'Custom text...' to write your own"
+    )
+
+    if preset_choice == "Custom text...":
+        reference_text = st.text_input(
+            "Enter your text:",
+            placeholder="Type the text you want to practice...",
+            max_chars=200
+        )
+    else:
+        reference_text = preset_choice
+        st.info(f"**Practice text**: {reference_text}")
+
+    st.divider()
+
+    # Section 2: Audio Recording
+    st.subheader("🎙️ Record Your Pronunciation")
+
+    # Two input methods: File upload OR audio recorder
+    recording_method = st.radio(
+        "Choose recording method:",
+        options=["Upload Audio File", "Record with Microphone"],
+        horizontal=True
+    )
+
+    audio_bytes = None
+
+    if recording_method == "Upload Audio File":
+        uploaded_file = st.file_uploader(
+            "Upload your audio file (WAV, MP3, M4A)",
+            type=['wav', 'mp3', 'm4a'],
+            help="Record audio on your device and upload it here"
+        )
+
+        if uploaded_file:
+            audio_bytes = uploaded_file.read()
+            st.audio(audio_bytes, format='audio/wav')
+            st.success("✅ Audio file loaded!")
+
+    else:  # Record with Microphone
+        st.info("🎤 Browser-based audio recording (requires extra-streamlit-components)")
+
+        try:
+            from extra_streamlit_components import CookieManager, audio_recorder
+
+            audio_bytes = audio_recorder(
+                text="Click to record",
+                recording_color="#e74c3c",
+                neutral_color="#3498db",
+                icon_name="microphone",
+                icon_size="3x",
+            )
+
+            if audio_bytes:
+                st.audio(audio_bytes, format='audio/wav')
+                st.success("✅ Recording complete!")
+
+        except ImportError:
+            st.warning("⚠️ Audio recorder not available. Please use 'Upload Audio File' method.")
+            st.info("To enable microphone recording, install: pip install extra-streamlit-components")
+
+    st.divider()
+
+    # Section 3: Configuration
+    with st.expander("⚙️ Advanced Settings", expanded=False):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            use_llm = st.checkbox(
+                "Enable LLM Feedback",
+                value=True,
+                help="Get AI-powered personalized feedback"
+            )
+
+            normalize_audio = st.checkbox(
+                "Normalize Audio",
+                value=True,
+                help="Adjust volume levels automatically"
+            )
+
+        with col2:
+            use_g2p = st.checkbox(
+                "Use Phoneme Analysis",
+                value=True,
+                help="Enable grapheme-to-phoneme conversion"
+            )
+
+    # Section 4: Analyze Button
+    analyze_button = st.button("🔍 Analyze Pronunciation", type="primary", use_container_width=True)
+
+    if analyze_button and audio_bytes and reference_text.strip():
+        with st.spinner("🔄 Analyzing your pronunciation..."):
+            try:
+                from accent_coach.domain.pronunciation.models import PracticeConfig
+
+                config = PracticeConfig(
+                    use_llm_feedback=use_llm and st.session_state.llm_available,
+                    normalize_audio=normalize_audio,
+                    use_g2p=use_g2p,
+                    sample_rate=16000,
+                    asr_model=st.session_state.config['model_name'],
+                    language=st.session_state.config['lang']
+                )
+
+                result = pronunciation_service.analyze_recording(
+                    audio_bytes=audio_bytes,
+                    reference_text=reference_text,
+                    user_id=user.get('localId', 'demo'),
+                    config=config
+                )
+
+                st.session_state.pronunciation_result = result
+                st.session_state.pronunciation_history.append({
+                    'reference_text': reference_text,
+                    'result': result,
+                    'timestamp': datetime.now()
+                })
+
+                st.success("✅ Analysis complete!")
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ Error during analysis: {str(e)}")
+                import traceback
+                with st.expander("🔍 Error Details"):
+                    st.code(traceback.format_exc())
+
+    elif analyze_button:
+        if not reference_text.strip():
+            st.warning("⚠️ Please enter or select text to practice")
+        if not audio_bytes:
+            st.warning("⚠️ Please record or upload audio first")
+
+    # Section 5: Results Display
+    if st.session_state.pronunciation_result:
+        result = st.session_state.pronunciation_result
+        analysis = result.analysis
+
+        st.divider()
+        st.header("📊 Analysis Results")
+
+        # Metrics
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.metric(
+                label="Word Accuracy",
+                value=f"{analysis.metrics.word_accuracy:.1%}",
+                help="Percentage of words pronounced correctly"
+            )
+
+        with col2:
+            st.metric(
+                label="Phoneme Accuracy",
+                value=f"{analysis.metrics.phoneme_accuracy:.1%}",
+                help="Percentage of phonemes pronounced correctly"
+            )
+
+        with col3:
+            st.metric(
+                label="Correct Words",
+                value=f"{analysis.metrics.correct_words}/{analysis.metrics.total_words}",
+                help="Number of correctly pronounced words"
+            )
+
+        with col4:
+            error_rate = analysis.metrics.phoneme_error_rate
+            st.metric(
+                label="Error Rate",
+                value=f"{error_rate:.1%}",
+                delta=f"-{error_rate:.1%}" if error_rate < 0.2 else None,
+                delta_color="inverse",
+                help="Phoneme Error Rate (PER)"
+            )
+
+        # What you said
+        st.subheader("💬 What You Said")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Transcription:**")
+            st.info(result.raw_decoded)
+
+        with col2:
+            st.markdown("**Phonemes (IPA):**")
+            st.code(result.recorded_phoneme_str, language=None)
+
+        # Word-by-word comparison
+        if analysis.per_word_comparison:
+            st.subheader("🔍 Word-by-Word Analysis")
+
+            for word_comp in analysis.per_word_comparison:
+                col1, col2, col3 = st.columns([2, 2, 1])
+
+                with col1:
+                    icon = "✅" if word_comp.match else "❌"
+                    st.markdown(f"{icon} **{word_comp.word}**")
+
+                with col2:
+                    st.caption(f"Expected: /{word_comp.ref_phonemes}/")
+                    st.caption(f"Your pronunciation: /{word_comp.rec_phonemes}/")
+
+                with col3:
+                    accuracy_color = "🟢" if word_comp.phoneme_accuracy > 0.8 else "🟡" if word_comp.phoneme_accuracy > 0.5 else "🔴"
+                    st.caption(f"{accuracy_color} {word_comp.phoneme_accuracy:.0%}")
+
+                if word_comp.errors:
+                    with st.expander("View errors"):
+                        for error in word_comp.errors:
+                            st.markdown(f"- {error}")
+
+        # IPA Breakdown (educational)
+        if analysis.ipa_breakdown:
+            st.subheader("📚 IPA Breakdown (Learn the Sounds)")
+
+            for ipa_item in analysis.ipa_breakdown[:5]:  # Show first 5
+                with st.expander(f"🔤 {ipa_item.word} → /{ipa_item.ipa}/"):
+                    st.markdown(f"**Hint:** {ipa_item.hint}")
+
+                    if ipa_item.audio:
+                        st.audio(ipa_item.audio, format='audio/mp3')
+
+        # Suggested drill words
+        if analysis.suggested_drill_words:
+            st.subheader("🎯 Practice These Words")
+            st.markdown("Focus on these words to improve:")
+
+            drill_cols = st.columns(min(len(analysis.suggested_drill_words), 4))
+            for i, word in enumerate(analysis.suggested_drill_words[:4]):
+                with drill_cols[i]:
+                    st.info(word)
+
+        # LLM Feedback
+        if result.llm_feedback:
+            st.divider()
+            st.subheader("🤖 AI Tutor Feedback")
+            st.markdown(result.llm_feedback)
+
+        # Clear button
+        if st.button("🗑️ Clear Results", use_container_width=True):
+            st.session_state.pronunciation_result = None
+            st.rerun()
 
 
 def render_language_query_tab(user: dict, language_query_service: LanguageQueryService):
@@ -677,8 +953,8 @@ def main():
     ])
 
     with tab1:
-        st.info("🚧 Pronunciation Practice - Coming in Week 3")
-        st.markdown("This tab will use `PronunciationPracticeService` for audio analysis.")
+        # Pronunciation Practice tab (fully implemented!)
+        render_pronunciation_practice_tab(user, services['pronunciation'])
 
     with tab2:
         # Conversation Tutor tab (fully implemented!)
