@@ -300,8 +300,8 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
             from accent_coach.domain.conversation.starters import ConversationStarters
 
             starter = ConversationStarters.get_starter(
-                topic=session.config.topic,
-                level=session.config.user_level or "B1-B2"
+                topic=session.topic,
+                level=session.level or "B1-B2"
             )
             st.info(f"**AI Tutor**: {starter}")
 
@@ -373,7 +373,7 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
         # Show session stats
         if st.session_state.conversation_turns:
             st.divider()
-            st.caption(f"📊 Turns: {len(st.session_state.conversation_turns)} | Mode: {session.config.mode.value.title()} | Topic: {session.config.topic}")
+            st.caption(f"📊 Turns: {len(st.session_state.conversation_turns)} | Mode: {session.mode.value.title()} | Topic: {session.topic}")
 
     else:
         st.info("👆 Click 'Start New Session' to begin practicing!")

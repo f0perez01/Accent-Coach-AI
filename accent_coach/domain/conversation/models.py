@@ -40,6 +40,15 @@ class TutorResponse:
 
 
 @dataclass
+class TurnResult:
+    """Simplified turn result for UI interactions."""
+    user_transcript: str
+    correction: Optional[str] = None
+    follow_up: str = ""
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
 class ConversationTurn:
     """Single turn in a conversation."""
     user_transcript: str
