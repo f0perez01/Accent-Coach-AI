@@ -901,6 +901,12 @@ def render_sidebar(user: dict, auth_manager: AuthManager, session_mgr: SessionMa
 
         st.divider()
 
+        # Advanced Settings
+        from accent_coach.presentation.components import render_advanced_settings
+        render_advanced_settings()
+
+        st.divider()
+
         # System info
         st.header("📊 System Info")
 
