@@ -15,11 +15,13 @@
 
 ### 📊 Progreso General
 ```
-██░░░░░░░░ 13% completado (0.8/6 features)
+████░░░░░░ 34% completado (2/6 features casi completas)
 
 Tiempo transcurrido: 0 días / 10 días
 Horas estimadas: 50h total
-Horas completadas: 6.4h / 50h (Advanced Settings ~80% done)
+Horas completadas: 11.8h / 50h
+  - Feature 1 (Advanced Settings): 6.4h / 8h = 80% ✅
+  - Feature 2 (PracticeTextManager): 5.4h / 6h = 90% ✅
 ```
 
 ### ✅ Tareas Completadas
@@ -27,6 +29,7 @@ Horas completadas: 6.4h / 50h (Advanced Settings ~80% done)
 - [x] Plan de sprints definido
 - [x] Repositorio configurado
 - [x] Feature 1: Advanced Settings - Implementación base (80%)
+- [x] Feature 2: PracticeTextManager - Implementación y UI (90%)
 
 ### 📋 Feature 1: Advanced Settings en Sidebar
 **Estimado:** 8 horas | **Progreso:** 80% ⚡
@@ -79,25 +82,67 @@ Pendiente:
 ---
 
 ### 📋 Feature 2: PracticeTextManager - Categorías
-**Estimado:** 6 horas | **Progreso:** 0%
+**Estimado:** 6 horas | **Progreso:** 90% ⚡
 
 **Checklist:**
-- [ ] Crear `accent_coach/domain/pronunciation/practice_texts.py`
-- [ ] Importar categorías desde `practice_texts.py` (root)
-- [ ] Implementar método `get_categories()`
-- [ ] Implementar método `get_texts_for_category(category)`
-- [ ] Crear selector de categorías en UI
-- [ ] Crear selector de textos por categoría
-- [ ] Agregar opción "Use custom text"
-- [ ] Integrar en `render_pronunciation_practice_tab()`
-- [ ] Reemplazar lista hardcoded de presets
-- [ ] Testing con todas las categorías
+- [x] Crear `accent_coach/domain/pronunciation/practice_texts.py`
+- [x] Importar categorías desde `practice_texts.py` (root)
+- [x] Implementar método `get_categories()`
+- [x] Implementar método `get_texts_for_category(category)`
+- [x] Implementar métodos adicionales: `search_texts()`, `get_random_text()`, `get_category_info()`
+- [x] Crear selector de categorías en UI
+- [x] Crear selector de textos por categoría
+- [x] Agregar opción "Use custom text"
+- [x] Integrar en `render_pronunciation_practice_tab()`
+- [x] Reemplazar lista hardcoded de presets
+- [x] Agregar métricas de categoría (count, description)
+- [x] Agregar tracking de cambios de texto (clear drill words)
+- [x] Mostrar metadatos (focus, difficulty)
+- [ ] Testing manual con todas las categorías (7 total)
 
 **Referencias:**
 - Código original: `app.py` líneas 858-876
-- Manager existente: `practice_texts.py`
+- Manager migrado: `accent_coach/domain/pronunciation/practice_texts.py`
 
 **Notas:**
+```
+✅ PracticeTextManager creado con 270+ líneas
+✅ 7 categorías implementadas:
+   - Beginner (10 textos)
+   - Intermediate (10 textos)
+   - Advanced (10 textos)
+   - Common Phrases (10 textos)
+   - Idioms (10 textos)
+   - Business English (10 textos)
+   - Tongue Twisters (10 textos)
+
+✅ Total: 70+ practice texts organizados
+
+✅ Métodos implementados:
+   - get_categories() -> Lista de categorías
+   - get_texts_for_category(cat) -> Lista de PracticeText
+   - search_texts(query) -> Búsqueda por contenido
+   - get_random_text(cat=None) -> Texto aleatorio
+   - get_category_info(cat) -> Metadata (count, description)
+
+✅ UI mejorada en streamlit_app.py:
+   - Selector de categoría con columnas (2:1)
+   - Métrica de count de textos
+   - Caption con descripción de categoría
+   - Selector de texto dinámico según categoría
+   - Info con focus y difficulty del texto seleccionado
+   - Tracking de cambios de texto (clear drill words)
+
+Mejoras vs código original:
+   - Organización por nivel de dificultad
+   - Categorías especializadas (Business, Idioms, Tongue Twisters)
+   - Metadata rica en cada texto (focus, difficulty)
+   - Búsqueda y selección aleatoria
+   - UI más informativa
+
+Pendiente:
+   - Testing manual navegando todas las categorías
+   - Verificar que drill words se limpien al cambiar texto
 ```
 [Agregar notas durante desarrollo]
 ```

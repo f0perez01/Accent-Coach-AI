@@ -161,22 +161,41 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
     # Section 1: Reference Text Input
     st.subheader("📝 Choose Text to Practice")
 
-    # Preset sentences
-    presets = [
-        "The quick brown fox jumps over the lazy dog",
-        "She sells seashells by the seashore",
-        "How much wood would a woodchuck chuck if a woodchuck could chuck wood",
-        "Peter Piper picked a peck of pickled peppers",
-        "I scream, you scream, we all scream for ice cream",
-        "Custom text..."
-    ]
+    # Initialize PracticeTextManager
+    from accent_coach.domain.pronunciation import PracticeTextManager
+    practice_manager = PracticeTextManager()
 
+    # Category selection
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        categories = practice_manager.get_categories()
+        selected_category = st.selectbox(
+            "Select a category:",
+            options=categories,
+            help="Choose a practice category suitable for your level"
+        )
+    
+    with col2:
+        # Category info
+        cat_info = practice_manager.get_category_info(selected_category)
+        if cat_info:
+            st.metric("Texts Available", cat_info['count'])
+            st.caption(cat_info['description'])
+
+    # Text selection
+    texts_in_category = practice_manager.get_texts_for_category(selected_category)
+    text_options = [text.text for text in texts_in_category] + ["Custom text..."]
+    
     preset_choice = st.selectbox(
-        "Select a sentence or enter custom text:",
-        options=presets,
-        help="Choose a preset sentence or select 'Custom text...' to write your own"
+        "Select a text or enter custom:",
+        options=text_options,
+        help="Choose a preset text or select 'Custom text...' to write your own"
     )
 
+    # Clear suggested drill words when text changes
+    if 'last_reference_text' not in st.session_state:
+        st.session_state.last_reference_text = None
+    
     if preset_choice == "Custom text...":
         reference_text = st.text_input(
             "Enter your text:",
@@ -185,7 +204,19 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
         )
     else:
         reference_text = preset_choice
-        st.info(f"**Practice text**: {reference_text}")
+        # Find the selected text object for metadata
+        selected_text_obj = next((t for t in texts_in_category if t.text == preset_choice), None)
+        if selected_text_obj:
+            st.info(f"**Practice text**: {reference_text}")
+            st.caption(f"ℹ️ Focus: {selected_text_obj.focus} | Level: {selected_text_obj.difficulty}")
+        else:
+            st.info(f"**Practice text**: {reference_text}")
+    
+    # Track text changes for clearing drill words
+    if st.session_state.last_reference_text != reference_text:
+        st.session_state.last_reference_text = reference_text
+        if 'suggested_drill_words' in st.session_state:
+            st.session_state.suggested_drill_words = []
 
     st.divider()
 

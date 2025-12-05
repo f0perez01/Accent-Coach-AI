@@ -12,10 +12,13 @@ Dependencies: BC1 (Audio), BC2 (Transcription), BC3 (Phonetic), BC6 (LLM)
 
 from .service import PronunciationPracticeService, PronunciationError
 from .models import PracticeConfig, PracticeResult
+from .practice_texts import PracticeTextManager, PracticeText
 
 __all__ = [
     "PronunciationPracticeService",
     "PronunciationError",
     "PracticeConfig",
     "PracticeResult",
+    "PracticeTextManager",
+    "PracticeText",
 ]
