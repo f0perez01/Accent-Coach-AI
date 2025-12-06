@@ -10,6 +10,7 @@ from .writing_ui import WritingUI
 from .visualizers import ResultsVisualizer
 from .settings import AdvancedSettings, render_advanced_settings
 from .ipa_guide import IPAGuideComponent, render_ipa_guide
+from .drilling_mode import DrillingMode, render_drilling_mode
 
 __all__ = [
     "PronunciationUI",
@@ -20,4 +21,6 @@ __all__ = [
     "render_advanced_settings",
     "IPAGuideComponent",
     "render_ipa_guide",
+    "DrillingMode",
+    "render_drilling_mode",
 ]

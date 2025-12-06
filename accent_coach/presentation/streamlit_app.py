@@ -184,6 +184,8 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
         st.session_state.pronunciation_result = None
     if 'pronunciation_history' not in st.session_state:
         st.session_state.pronunciation_history = []
+    if 'drilling_mode_active' not in st.session_state:
+        st.session_state.drilling_mode_active = False
 
     # Section 1: Reference Text Input
     st.subheader("📝 Choose Text to Practice")
@@ -464,6 +466,13 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
                 with drill_cols[i]:
                     st.info(word)
 
+            st.divider()
+
+            # Start Drilling Mode button
+            if st.button("🎯 Start Drilling Mode", type="primary", use_container_width=True):
+                st.session_state.drilling_mode_active = True
+                st.rerun()
+
         # LLM Feedback
         if result.llm_feedback:
             st.divider()
@@ -474,6 +483,54 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
         if st.button("🗑️ Clear Results", use_container_width=True):
             st.session_state.pronunciation_result = None
             st.rerun()
+
+    # Drilling Mode Section
+    if st.session_state.pronunciation_result and st.session_state.pronunciation_result.analysis.suggested_drill_words:
+        if st.session_state.get('drilling_mode_active', False):
+            st.divider()
+            st.divider()
+
+            from accent_coach.presentation.components import render_drilling_mode
+            from accent_coach.domain.audio import AudioService
+
+            # Initialize AudioService
+            audio_svc = AudioService()
+
+            # Define callback for drilling analysis
+            def analyze_drilling_word(audio_bytes: bytes, target_word: str) -> dict:
+                """Analyze a single word in drilling mode."""
+                try:
+                    # Use pronunciation service to analyze
+                    from accent_coach.domain.pronunciation import PracticeConfig
+                    config = PracticeConfig(
+                        use_llm_feedback=False  # Skip LLM in drilling for speed
+                    )
+
+                    result = pronunciation_service.analyze_recording(
+                        audio_bytes=audio_bytes,
+                        reference_text=target_word,
+                        user_id=user.get('localId', 'anonymous'),
+                        config=config
+                    )
+
+                    return {'analysis': result.analysis}
+
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+                    return {'error': str(e)}
+
+            # Render drilling mode
+            render_drilling_mode(
+                drill_words=st.session_state.pronunciation_result.analysis.suggested_drill_words,
+                audio_service=audio_svc,
+                on_record_callback=analyze_drilling_word,
+                tts_lang='en'
+            )
+
+            # Exit drilling button
+            if st.button("⬅️ Back to Analysis", use_container_width=True):
+                st.session_state.drilling_mode_active = False
+                st.rerun()
 
 
 def render_language_query_tab(user: dict, language_query_service: LanguageQueryService):
@@ -652,9 +709,12 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
             st.info(f"**AI Tutor**: {starter}")
 
         # Display conversation history
-        for turn in st.session_state.conversation_turns:
+        for i, turn in enumerate(st.session_state.conversation_turns, 1):
             # User message
             with st.chat_message("user"):
+                # Show input method badge
+                input_badge = turn.get('input_method', '⌨️ Text')
+                st.caption(f"Turn {i} • {input_badge}")
                 st.markdown(turn['user_transcript'])
 
             # AI response
@@ -669,18 +729,69 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
 
         st.divider()
 
-        # User input for next turn
-        user_transcript = st.text_area(
-            "Your response:",
-            height=100,
-            placeholder="Type what you would say in this conversation...",
-            key=f"conv_input_{len(st.session_state.conversation_turns)}"
+        # Section: Your Turn (Audio or Text Input)
+        st.subheader("🎙️ Your Turn")
+        st.caption("Speak naturally or type your response to continue the conversation")
+
+        # Input method selector
+        input_method = st.radio(
+            "Choose input method:",
+            options=["🎤 Voice Recording", "⌨️ Text Input"],
+            horizontal=True,
+            key=f"input_method_{len(st.session_state.conversation_turns)}"
         )
+
+        user_transcript = ""
+        audio_recorded = False
+
+        if input_method == "🎤 Voice Recording":
+            # Audio input section
+            st.markdown("**Record your response:**")
+            audio_bytes = st.audio_input(
+                "Record your response",
+                label_visibility="collapsed",
+                key=f"audio_input_{len(st.session_state.conversation_turns)}"
+            )
+
+            if audio_bytes:
+                st.success("✓ Recording captured!")
+
+                # Show playback
+                audio_data = audio_bytes.getvalue() if hasattr(audio_bytes, "getvalue") else audio_bytes
+                st.audio(audio_data, format="audio/wav")
+
+                # Validate audio size
+                audio_size_kb = len(audio_data) / 1024
+                if audio_size_kb < 1:
+                    st.warning("⚠️ Audio seems too short. Please record at least 1 second.")
+                elif audio_size_kb > 10240:  # 10MB limit
+                    st.error("❌ Audio file too large (max 10MB). Please record a shorter message.")
+                else:
+                    audio_recorded = True
+                    st.info(f"📊 Audio size: {audio_size_kb:.1f} KB")
+
+        else:
+            # Text input section
+            user_transcript = st.text_area(
+                "Your response:",
+                height=100,
+                placeholder="Type what you would say in this conversation...",
+                key=f"conv_input_{len(st.session_state.conversation_turns)}"
+            )
 
         col1, col2 = st.columns([1, 5])
 
         with col1:
-            submit_turn = st.button("💬 Send", type="primary", use_container_width=True)
+            # Disable button if no valid input
+            can_submit = (input_method == "⌨️ Text Input" and user_transcript.strip()) or \
+                         (input_method == "🎤 Voice Recording" and audio_recorded)
+            
+            submit_turn = st.button(
+                "🚀 Send & Get Feedback" if input_method == "🎤 Voice Recording" else "💬 Send",
+                type="primary",
+                use_container_width=True,
+                disabled=not can_submit
+            )
 
         with col2:
             if st.button("🔄 End Session", use_container_width=True):
@@ -695,9 +806,41 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
                     st.error(f"Error closing session: {str(e)}")
 
         # Process turn
-        if submit_turn and user_transcript.strip():
-            with st.spinner("Tutor is thinking..."):
+        if submit_turn and can_submit:
+            with st.spinner("🧠 Analyzing your response..." if input_method == "🎤 Voice Recording" else "Tutor is thinking..."):
                 try:
+                    # If audio input, transcribe first
+                    if input_method == "🎤 Voice Recording":
+                        from accent_coach.domain.audio.service import AudioService
+                        from accent_coach.domain.transcription.service import TranscriptionService
+                        
+                        # Get services from session state or reinitialize
+                        if 'services' in st.session_state:
+                            audio_service = st.session_state.services['audio']
+                            transcription_service = st.session_state.services['transcription']
+                        else:
+                            st.error("Services not initialized. Please refresh the page.")
+                            st.stop()
+                        
+                        # Process audio
+                        processed_audio = audio_service.process_audio(
+                            audio_data,
+                            enhance=st.session_state.config.get('enable_enhancement', True),
+                            denoise=st.session_state.config.get('enable_denoising', True),
+                            vad=st.session_state.config.get('enable_vad', True)
+                        )
+                        
+                        # Transcribe
+                        transcription_result = transcription_service.transcribe(processed_audio.audio_array)
+                        user_transcript = transcription_result.text
+                        
+                        if not user_transcript.strip():
+                            st.error("❌ Could not transcribe audio. Please try again or use text input.")
+                            st.stop()
+                        
+                        st.info(f"📝 Transcribed: \"{user_transcript}\"")
+                    
+                    # Process conversation turn
                     turn_result = conversation_service.process_turn(
                         session_id=session.session_id,
                         user_transcript=user_transcript,
@@ -708,7 +851,8 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
                     st.session_state.conversation_turns.append({
                         'user_transcript': user_transcript,
                         'correction': turn_result.correction,
-                        'follow_up': turn_result.follow_up
+                        'follow_up': turn_result.follow_up,
+                        'input_method': '🎤 Voice' if input_method == "🎤 Voice Recording" else '⌨️ Text'
                     })
 
                     st.rerun()
