@@ -86,10 +86,37 @@ def initialize_services():
     
     asr_manager = ASRModelManager(DEFAULT_MODEL, MODEL_OPTIONS)
 
-    # Initialize repositories (using in-memory for now)
-    pronunciation_repo = InMemoryPronunciationRepository()
-    conversation_repo = InMemoryConversationRepository()
-    writing_repo = InMemoryWritingRepository()
+    # Initialize repositories
+    # Try to use Firestore if available, fallback to in-memory
+    try:
+        # Get Firestore client from auth_manager
+        from auth_manager import AuthManager
+        temp_auth = AuthManager(st.secrets if hasattr(st, 'secrets') else None)
+        db = temp_auth.get_db()
+        
+        if db:
+            # Use Firestore repositories
+            from accent_coach.infrastructure.persistence import (
+                FirestorePronunciationRepository,
+                FirestoreConversationRepository,
+                FirestoreWritingRepository,
+            )
+            pronunciation_repo = FirestorePronunciationRepository(db)
+            conversation_repo = FirestoreConversationRepository(db)
+            writing_repo = FirestoreWritingRepository(db)
+            st.toast("✅ Connected to Firestore", icon="☁️")
+        else:
+            # Firestore not available, use in-memory
+            pronunciation_repo = InMemoryPronunciationRepository()
+            conversation_repo = InMemoryConversationRepository()
+            writing_repo = InMemoryWritingRepository()
+            st.toast("⚠️ Using in-memory storage (data not persisted)", icon="💾")
+    except Exception as e:
+        # Fallback to in-memory on any error
+        pronunciation_repo = InMemoryPronunciationRepository()
+        conversation_repo = InMemoryConversationRepository()
+        writing_repo = InMemoryWritingRepository()
+        st.warning(f"Firestore unavailable, using in-memory storage: {str(e)}")
 
     # Initialize domain services with dependency injection
     audio_service = AudioService()
@@ -935,6 +962,12 @@ def render_sidebar(user: dict, auth_manager: AuthManager, session_mgr: SessionMa
         # Advanced Settings
         from accent_coach.presentation.components import render_advanced_settings
         render_advanced_settings()
+
+        st.divider()
+
+        # IPA Quick Reference Guide
+        from accent_coach.presentation.components import render_ipa_guide
+        render_ipa_guide()
 
         st.divider()
 

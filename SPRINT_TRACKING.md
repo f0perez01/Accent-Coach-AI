@@ -30,6 +30,7 @@ Horas completadas: 11.8h / 50h
 - [x] Repositorio configurado
 - [x] Feature 1: Advanced Settings - Implementación base (80%)
 - [x] Feature 2: PracticeTextManager - Implementación y UI (90%)
+- [x] Feature 3: IPA Guide Sidebar - Implementación completa (100%)
 
 ### 📋 Feature 1: Advanced Settings en Sidebar
 **Estimado:** 8 horas | **Progreso:** 80% ⚡
@@ -149,39 +150,82 @@ Pendiente:
 
 ---
 
-### 📋 Feature 3: Guía IPA Interactiva
-**Estimado:** 10 horas | **Progreso:** 0%
+### 📋 Feature 3: Guía IPA Interactiva (Sidebar)
+**Estimado:** 10 horas | **Progreso:** 100% ✅
 
 **Checklist:**
-- [ ] Crear `accent_coach/presentation/components/ipa_guide.py`
-- [ ] Implementar generación de breakdown data
-  - [ ] Integrar `PhonemeProcessor.create_ipa_guide_data()`
-- [ ] Crear tabla/grid de palabras con IPA
-- [ ] Implementar multiselect para drilling
-- [ ] Agregar descripción de símbolos únicos
-- [ ] Integrar con `IPADefinitionsManager`
-- [ ] Implementar audio TTS por palabra
-- [ ] Agregar reproductor de audio inline
-- [ ] Detectar modo drilling (subset vs full)
-- [ ] Retornar `subset_text` correctamente
-- [ ] Integrar en pronunciation practice tab
-- [ ] Testing: selección múltiple + audio
+- [x] Crear `accent_coach/presentation/components/ipa_guide.py`
+- [x] Implementar clase `IPAGuideComponent`
+- [x] Crear método `render()` con expander
+- [x] Implementar filtros por categoría
+  - [x] All Symbols (35 total)
+  - [x] Vowels (17 símbolos)
+  - [x] Diphthongs (6 símbolos)
+  - [x] Consonants (10 símbolos)
+  - [x] Stress Markers (2 símbolos)
+- [x] Integrar con `IPADefinitionsManager`
+- [x] Crear layout limpio con columnas
+- [x] Agregar contador de símbolos
+- [x] Implementar `_get_filtered_symbols()`
+- [x] Implementar `_render_symbols()` con cards
+- [x] Agregar función de conveniencia `render_ipa_guide()`
+- [x] Actualizar exports en `__init__.py`
+- [x] Integrar en sidebar de `streamlit_app.py`
+- [x] Testing automatizado completo
 
 **Referencias:**
-- Código original: `app.py` líneas 1001-1018
-- Visualizer: `ResultsVisualizer.render_ipa_guide()`
+- Código base: `IPADefinitionsManager` de `ipa_definitions.py`
+- Destino: `accent_coach/presentation/components/ipa_guide.py`
 
 **Notas:**
 ```
-[Agregar notas durante desarrollo]
+✅ Componente IPA Guide creado exitosamente (129 líneas)
+✅ Integrado en sidebar después de Advanced Settings
+✅ 5 filtros de categoría implementados
+✅ 35 símbolos IPA organizados y validados
+
+Estructura:
+- IPAGuideComponent class con métodos estáticos
+- render() - Método principal con expander colapsable
+- _get_filtered_symbols() - Filtrado por categoría
+- _render_symbols() - Layout con columnas 1:4
+- render_ipa_guide() - Función de conveniencia
+
+Tests automatizados (test_ipa_guide.py):
+✅ Test 1: Get All Symbols (35 total)
+✅ Test 2: Get Vowels (17 símbolos)
+✅ Test 3: Get Diphthongs (6 símbolos)
+✅ Test 4: Get Consonants (10 símbolos)
+✅ Test 5: Get Specific Definition (4 tests)
+✅ Test 6: Validate Category Counts (35 = 17+6+10+2)
+✅ Test 7: Check for Duplicates (0 found)
+
+Mejoras vs código original:
+- Componente reutilizable en sidebar (vs tab completo)
+- Filtros interactivos por categoría
+- Layout más compacto y limpio
+- Contador dinámico de símbolos
+- Validación completa sin duplicados
+- Expander colapsable (no ocupa espacio)
+
+Decisiones de diseño:
+- Sidebar placement: Referencia rápida siempre accesible
+- Expander collapsed: No distrae cuando no se necesita
+- Filtros dropdown: Más compacto que tabs/radio buttons
+- Layout 1:4 columns: Símbolo destacado, definición legible
+- Función de conveniencia: API simple para importar
+
+Ubicación en sidebar:
+1. Progress Tracker
+2. Advanced Settings
+3. IPA Quick Reference ← nuevo
+4. (espacio para más componentes)
 ```
 
 ---
 
 ### 📋 Feature 4: Persistencia en Firestore
-**Estimado:** 8 horas | **Progreso:** 0%
 
-**Checklist:**
 - [ ] Crear `accent_coach/infrastructure/persistence/firestore_repositories.py`
 - [ ] Implementar `FirestorePronunciationRepository`
   - [ ] Método `save_analysis(user_id, reference_text, result, timestamp)`

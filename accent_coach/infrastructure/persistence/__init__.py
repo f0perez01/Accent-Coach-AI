@@ -12,9 +12,32 @@ from .repositories import (
     ActivityRepository,
 )
 
+from .firestore_repositories import (
+    FirestorePronunciationRepository,
+    FirestoreConversationRepository,
+    FirestoreWritingRepository,
+    FirestoreActivityRepository,
+)
+
+from .in_memory_repositories import (
+    InMemoryPronunciationRepository,
+    InMemoryConversationRepository,
+    InMemoryWritingRepository,
+)
+
 __all__ = [
+    # Abstract interfaces
     "PronunciationRepository",
     "ConversationRepository",
     "WritingRepository",
     "ActivityRepository",
+    # Firestore implementations
+    "FirestorePronunciationRepository",
+    "FirestoreConversationRepository",
+    "FirestoreWritingRepository",
+    "FirestoreActivityRepository",
+    # In-memory implementations
+    "InMemoryPronunciationRepository",
+    "InMemoryConversationRepository",
+    "InMemoryWritingRepository",
 ]
