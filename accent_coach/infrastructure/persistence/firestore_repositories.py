@@ -408,24 +408,40 @@ class FirestoreActivityRepository(ActivityRepository):
     def log_activity(self, activity) -> None:
         """
         Log user activity to Firestore.
-        
+
         Args:
             activity: Activity object with type, score, and metadata
         """
         try:
             doc_ref = self._db.collection(self._collection_name).document()
-            
+
+            # Get timestamp
+            timestamp = activity.timestamp or datetime.now()
+
+            # Format date for daily aggregation
+            date_str = timestamp.strftime("%Y-%m-%d") if isinstance(timestamp, datetime) else datetime.now().strftime("%Y-%m-%d")
+
+            # Get score/weight (support both field names for compatibility)
+            score = getattr(activity, 'score', 0)
+            weight = getattr(activity, 'weight', score)  # Use weight if available, else use score
+
             data = {
                 "user_id": activity.user_id,
                 "activity_type": activity.activity_type.value if hasattr(activity.activity_type, 'value') else str(activity.activity_type),
-                "timestamp": activity.timestamp or firestore.SERVER_TIMESTAMP,
-                "score": getattr(activity, 'score', 0),
+                "timestamp": firestore.SERVER_TIMESTAMP if timestamp is None else timestamp,
+                "score": score,
+                "weight": weight,  # For compatibility with ActivityLogger
+                "date": date_str,  # For daily aggregation
                 "metadata": getattr(activity, 'metadata', {}),
             }
-            
+
+            # Also include content_length if available (used by old activity_logger)
+            if hasattr(activity, 'content_length'):
+                data["content_length"] = activity.content_length
+
             doc_ref.set(data)
             logger.info(f"Logged activity for user {activity.user_id}")
-            
+
         except Exception as e:
             logger.error(f"Failed to log activity: {e}")
             raise
@@ -433,33 +449,31 @@ class FirestoreActivityRepository(ActivityRepository):
     def get_today_activities(self, user_id: str, date: datetime) -> List[Dict[str, Any]]:
         """
         Get user's activities for a specific date.
-        
+
         Args:
             user_id: User identifier
             date: Date to query activities for
-            
+
         Returns:
-            List of activity dictionaries
+            List of activity dictionaries with 'date', 'weight', and other fields
         """
         try:
-            # Define start and end of day
-            start_of_day = datetime(date.year, date.month, date.day, 0, 0, 0)
-            end_of_day = datetime(date.year, date.month, date.day, 23, 59, 59)
-            
+            # Format date as string for query
+            date_str = date.strftime("%Y-%m-%d")
+
+            # Use date field instead of timestamp ranges to avoid composite index requirement
             query = (
                 self._db.collection(self._collection_name)
                 .where(filter=FieldFilter("user_id", "==", user_id))
-                .where(filter=FieldFilter("timestamp", ">=", start_of_day))
-                .where(filter=FieldFilter("timestamp", "<=", end_of_day))
-                .order_by("timestamp", direction=firestore.Query.DESCENDING)
+                .where(filter=FieldFilter("date", "==", date_str))
             )
-            
+
             docs = query.stream()
             activities = [{"id": doc.id, **doc.to_dict()} for doc in docs]
-            
-            logger.info(f"Retrieved {len(activities)} activities for user {user_id} on {date.date()}")
+
+            logger.info(f"Retrieved {len(activities)} activities for user {user_id} on {date_str}")
             return activities
-            
+
         except Exception as e:
             logger.error(f"Failed to get today's activities: {e}")
             return []

@@ -58,6 +58,58 @@ def init_session_state():
         st.session_state.user = None
 
 
+@st.cache_resource
+def initialize_repositories():
+    """
+    Initialize repositories (Firestore or in-memory).
+    Cached to avoid re-initialization on every rerun.
+
+    Returns:
+        tuple: (pronunciation_repo, conversation_repo, writing_repo, activity_repo, connection_status)
+        connection_status: dict with 'type' ('firestore', 'in-memory') and optional 'error'
+    """
+    try:
+        # Get Firestore client from auth_manager
+        from auth_manager import AuthManager
+        temp_auth = AuthManager(st.secrets if hasattr(st, 'secrets') else None)
+        temp_auth.init_firebase()  # Initialize Firebase before getting db
+        db = temp_auth.get_db()
+
+        if db:
+            # Use Firestore repositories
+            from accent_coach.infrastructure.persistence import (
+                FirestorePronunciationRepository,
+                FirestoreConversationRepository,
+                FirestoreWritingRepository,
+                FirestoreActivityRepository,
+            )
+            pronunciation_repo = FirestorePronunciationRepository(db)
+            conversation_repo = FirestoreConversationRepository(db)
+            writing_repo = FirestoreWritingRepository(db)
+            activity_repo = FirestoreActivityRepository(db)
+            return pronunciation_repo, conversation_repo, writing_repo, activity_repo, {'type': 'firestore'}
+        else:
+            # Firestore not available, use in-memory
+            from accent_coach.infrastructure.persistence.in_memory_repositories import (
+                InMemoryActivityRepository
+            )
+            pronunciation_repo = InMemoryPronunciationRepository()
+            conversation_repo = InMemoryConversationRepository()
+            writing_repo = InMemoryWritingRepository()
+            activity_repo = InMemoryActivityRepository()
+            return pronunciation_repo, conversation_repo, writing_repo, activity_repo, {'type': 'in-memory'}
+    except Exception as e:
+        # Fallback to in-memory on any error
+        from accent_coach.infrastructure.persistence.in_memory_repositories import (
+            InMemoryActivityRepository
+        )
+        pronunciation_repo = InMemoryPronunciationRepository()
+        conversation_repo = InMemoryConversationRepository()
+        writing_repo = InMemoryWritingRepository()
+        activity_repo = InMemoryActivityRepository()
+        return pronunciation_repo, conversation_repo, writing_repo, activity_repo, {'type': 'in-memory', 'error': str(e)}
+
+
 def initialize_services():
     """
     Initialize all domain services with dependency injection.
@@ -76,47 +128,28 @@ def initialize_services():
 
     # Initialize ASR Manager for transcription
     from accent_coach.domain.transcription.asr_manager import ASRModelManager
-    
+
     MODEL_OPTIONS = {
         "Wav2Vec2 Base (Fast, Cloud-Friendly)": "facebook/wav2vec2-base-960h",
         "Wav2Vec2 Large (Better Accuracy, Needs More RAM)": "facebook/wav2vec2-large-960h",
         "Wav2Vec2 XLSR (Phonetic)": "mrrubino/wav2vec2-large-xlsr-53-l2-arctic-phoneme",
     }
     DEFAULT_MODEL = "facebook/wav2vec2-base-960h"
-    
+
     asr_manager = ASRModelManager(DEFAULT_MODEL, MODEL_OPTIONS)
 
-    # Initialize repositories
-    # Try to use Firestore if available, fallback to in-memory
-    try:
-        # Get Firestore client from auth_manager
-        from auth_manager import AuthManager
-        temp_auth = AuthManager(st.secrets if hasattr(st, 'secrets') else None)
-        db = temp_auth.get_db()
-        
-        if db:
-            # Use Firestore repositories
-            from accent_coach.infrastructure.persistence import (
-                FirestorePronunciationRepository,
-                FirestoreConversationRepository,
-                FirestoreWritingRepository,
-            )
-            pronunciation_repo = FirestorePronunciationRepository(db)
-            conversation_repo = FirestoreConversationRepository(db)
-            writing_repo = FirestoreWritingRepository(db)
+    # Initialize repositories using cached function
+    pronunciation_repo, conversation_repo, writing_repo, activity_repo, connection_status = initialize_repositories()
+
+    # Show connection status only once per session
+    if 'db_connection_shown' not in st.session_state:
+        if connection_status['type'] == 'firestore':
             st.toast("✅ Connected to Firestore", icon="☁️")
+        elif 'error' in connection_status:
+            st.warning(f"Firestore unavailable, using in-memory storage: {connection_status['error']}")
         else:
-            # Firestore not available, use in-memory
-            pronunciation_repo = InMemoryPronunciationRepository()
-            conversation_repo = InMemoryConversationRepository()
-            writing_repo = InMemoryWritingRepository()
             st.toast("⚠️ Using in-memory storage (data not persisted)", icon="💾")
-    except Exception as e:
-        # Fallback to in-memory on any error
-        pronunciation_repo = InMemoryPronunciationRepository()
-        conversation_repo = InMemoryConversationRepository()
-        writing_repo = InMemoryWritingRepository()
-        st.warning(f"Firestore unavailable, using in-memory storage: {str(e)}")
+        st.session_state.db_connection_shown = True
 
     # Initialize domain services with dependency injection
     audio_service = AudioService()
@@ -166,6 +199,7 @@ def initialize_services():
             'pronunciation': pronunciation_repo,
             'conversation': conversation_repo,
             'writing': writing_repo,
+            'activity': activity_repo,
         }
     }
 
@@ -1055,7 +1089,7 @@ def render_writing_coach_tab(user: dict, writing_service: WritingService):
                     st.error(f"Error generating feedback: {str(e)}")
 
 
-def render_sidebar(user: dict, auth_manager: AuthManager, session_mgr: SessionManager):
+def render_sidebar(user: dict, auth_manager: AuthManager, session_mgr: SessionManager, activity_repo=None):
     """Render sidebar with user info and daily goals."""
     with st.sidebar:
         st.write(f"👤 **{user['email']}**")
@@ -1064,7 +1098,17 @@ def render_sidebar(user: dict, auth_manager: AuthManager, session_mgr: SessionMa
         # Daily Goal Progress
         st.header("🎯 Daily Goal")
 
-        today_activities = auth_manager.get_today_activities(user.get('localId', ''))
+        # Get today's activities from repository
+        from datetime import datetime
+        if activity_repo:
+            today_activities = activity_repo.get_today_activities(
+                user_id=user.get('localId', ''),
+                date=datetime.now()
+            )
+        else:
+            # Fallback to auth_manager for backward compatibility
+            today_activities = auth_manager.get_today_activities(user.get('localId', ''))
+
         progress_data = ActivityLogger.get_daily_score_and_progress(
             activities_today=today_activities,
             daily_goal=100
@@ -1168,7 +1212,7 @@ def main():
     st.markdown("Practice your American English pronunciation with AI-powered feedback")
 
     # Sidebar
-    render_sidebar(user, services['auth'], session_mgr)
+    render_sidebar(user, services['auth'], session_mgr, services['repos']['activity'])
 
     # Main tabs
     tab1, tab2, tab3, tab4 = st.tabs([

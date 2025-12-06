@@ -131,14 +131,44 @@ class InMemoryActivityRepository(ActivityRepository):
         self._activities.append(activity)
 
     def get_today_activities(self, user_id: str, date: datetime) -> List:
-        """Get activities for specific date from in-memory storage."""
+        """
+        Get activities for specific date from in-memory storage.
+
+        Returns:
+            List of activity dictionaries with 'date', 'weight', and other fields
+        """
         # Filter by user_id and date (same day)
-        return [
+        matching_activities = [
             activity
             for activity in self._activities
             if activity.user_id == user_id
             and activity.timestamp.date() == date.date()
         ]
+
+        # Convert ActivityLog objects to dictionaries for compatibility with ActivityLogger
+        result = []
+        for activity in matching_activities:
+            date_str = activity.timestamp.strftime("%Y-%m-%d")
+            score = getattr(activity, 'score', 0)
+            weight = getattr(activity, 'weight', score)  # Use weight if available, else use score
+
+            activity_dict = {
+                "user_id": activity.user_id,
+                "activity_type": activity.activity_type.value if hasattr(activity.activity_type, 'value') else str(activity.activity_type),
+                "timestamp": activity.timestamp,
+                "date": date_str,
+                "score": score,
+                "weight": weight,
+                "metadata": getattr(activity, 'metadata', {}),
+            }
+
+            # Also include content_length if available
+            if hasattr(activity, 'content_length'):
+                activity_dict["content_length"] = activity.content_length
+
+            result.append(activity_dict)
+
+        return result
 
     def clear(self):
         """Clear all data."""
