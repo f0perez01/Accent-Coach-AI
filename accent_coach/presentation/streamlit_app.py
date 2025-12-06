@@ -204,7 +204,7 @@ def initialize_services():
     }
 
 
-def render_pronunciation_practice_tab(user: dict, pronunciation_service: PronunciationPracticeService):
+def render_pronunciation_practice_tab(user: dict, pronunciation_service: PronunciationPracticeService, activity_repo=None):
     """
     Render Pronunciation Practice tab (BC4).
 
@@ -385,6 +385,30 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
                     'result': result,
                     'timestamp': datetime.now()
                 })
+
+                # Log activity for daily score tracking
+                if activity_repo:
+                    try:
+                        from accent_coach.infrastructure.activity.models import ActivityLog, ActivityType
+
+                        word_count = len(reference_text.split())
+                        word_accuracy = result.analysis.metrics.word_accuracy if hasattr(result, 'analysis') else 0
+                        score = int(word_count * (word_accuracy / 100))  # Score based on accuracy
+
+                        activity = ActivityLog(
+                            user_id=user.get('localId', 'demo'),
+                            activity_type=ActivityType.PRONUNCIATION,
+                            timestamp=datetime.now(),
+                            score=score,
+                            metadata={
+                                'word_count': word_count,
+                                'word_accuracy': word_accuracy,
+                                'phoneme_accuracy': result.analysis.metrics.phoneme_accuracy if hasattr(result, 'analysis') else 0,
+                            }
+                        )
+                        activity_repo.log_activity(activity)
+                    except Exception as log_error:
+                        print(f"Warning: Failed to log activity: {log_error}")
 
                 st.success("✅ Analysis complete!")
                 st.rerun()
@@ -567,7 +591,7 @@ def render_pronunciation_practice_tab(user: dict, pronunciation_service: Pronunc
                 st.rerun()
 
 
-def render_language_query_tab(user: dict, language_query_service: LanguageQueryService):
+def render_language_query_tab(user: dict, language_query_service: LanguageQueryService, activity_repo=None):
     """
     Render Language Assistant tab (BC8).
 
@@ -654,13 +678,39 @@ def render_language_query_tab(user: dict, language_query_service: LanguageQueryS
                     'timestamp': result.timestamp
                 })
 
+                # Log activity for daily score tracking
+                if activity_repo:
+                    try:
+                        from accent_coach.infrastructure.activity.models import ActivityLog, ActivityType
+                        from datetime import datetime
+
+                        # Base score on query complexity (word count)
+                        word_count = len(user_query.split())
+                        score = min(10, word_count)  # Cap at 10 points per query
+
+                        activity = ActivityLog(
+                            user_id=user.get('localId', ''),
+                            activity_type=ActivityType.LANGUAGE_QUERY,
+                            timestamp=datetime.now(),
+                            score=score,
+                            metadata={
+                                'query_length': len(user_query),
+                                'word_count': word_count,
+                                'category': result.category.value,
+                            }
+                        )
+                        activity_repo.log_activity(activity)
+                    except Exception as log_error:
+                        # Don't fail the query if logging fails
+                        print(f"Warning: Failed to log activity: {log_error}")
+
                 st.rerun()
 
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
 
-def render_conversation_tutor_tab(user: dict, conversation_service: ConversationService):
+def render_conversation_tutor_tab(user: dict, conversation_service: ConversationService, activity_repo=None):
     """
     Render Conversation Tutor tab (BC5).
 
@@ -889,6 +939,30 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
                         'input_method': '🎤 Voice' if input_method == "🎤 Voice Recording" else '⌨️ Text'
                     })
 
+                    # Log activity for daily score tracking
+                    if activity_repo:
+                        try:
+                            from accent_coach.infrastructure.activity.models import ActivityLog, ActivityType
+
+                            word_count = len(user_transcript.split())
+                            error_count = len(turn_result.errors_detected) if hasattr(turn_result, 'errors_detected') else 0
+                            score = max(5, word_count - error_count)  # Base score on turn length and errors
+
+                            activity = ActivityLog(
+                                user_id=user.get('localId', 'demo'),
+                                activity_type=ActivityType.CONVERSATION,
+                                timestamp=datetime.now(),
+                                score=score,
+                                metadata={
+                                    'word_count': word_count,
+                                    'error_count': error_count,
+                                    'mode': session.mode.value if hasattr(session, 'mode') else 'unknown',
+                                }
+                            )
+                            activity_repo.log_activity(activity)
+                        except Exception as log_error:
+                            print(f"Warning: Failed to log activity: {log_error}")
+
                     st.rerun()
 
                 except Exception as e:
@@ -903,7 +977,7 @@ def render_conversation_tutor_tab(user: dict, conversation_service: Conversation
         st.info("👆 Click 'Start New Session' to begin practicing!")
 
 
-def render_writing_coach_tab(user: dict, writing_service: WritingService):
+def render_writing_coach_tab(user: dict, writing_service: WritingService, activity_repo=None):
     """
     Render Writing Coach tab (BC7).
 
@@ -1004,6 +1078,29 @@ def render_writing_coach_tab(user: dict, writing_service: WritingService):
                 )
 
                 st.session_state.evaluation_result = evaluation
+
+                # Log activity for daily score tracking
+                if activity_repo:
+                    try:
+                        from accent_coach.infrastructure.activity.models import ActivityLog, ActivityType
+                        from datetime import datetime
+
+                        word_count = len(writing_text.split())
+                        activity = ActivityLog(
+                            user_id=user.get('localId', ''),
+                            activity_type=ActivityType.WRITING,
+                            timestamp=datetime.now(),
+                            score=min(word_count, 50),  # Cap at 50 points per writing
+                            metadata={
+                                'word_count': word_count,
+                                'cefr_level': evaluation.metrics.cefr_level,
+                                'variety_score': evaluation.metrics.variety_score,
+                            }
+                        )
+                        activity_repo.log_activity(activity)
+                    except Exception as log_error:
+                        # Don't fail the evaluation if logging fails
+                        print(f"Warning: Failed to log activity: {log_error}")
 
             except Exception as e:
                 st.error(f"❌ Error during evaluation: {str(e)}")
@@ -1224,19 +1321,19 @@ def main():
 
     with tab1:
         # Pronunciation Practice tab (fully implemented!)
-        render_pronunciation_practice_tab(user, services['pronunciation'])
+        render_pronunciation_practice_tab(user, services['pronunciation'], services['repos']['activity'])
 
     with tab2:
         # Conversation Tutor tab (fully implemented!)
-        render_conversation_tutor_tab(user, services['conversation'])
+        render_conversation_tutor_tab(user, services['conversation'], services['repos']['activity'])
 
     with tab3:
         # Writing Coach tab (fully implemented!)
-        render_writing_coach_tab(user, services['writing'])
+        render_writing_coach_tab(user, services['writing'], services['repos']['activity'])
 
     with tab4:
         # Language Query tab (fully implemented!)
-        render_language_query_tab(user, services['language_query'])
+        render_language_query_tab(user, services['language_query'], services['repos']['activity'])
 
 
 if __name__ == "__main__":
